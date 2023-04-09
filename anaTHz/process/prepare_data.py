@@ -2,12 +2,15 @@ import numpy as np
 from scipy.signal import sosfiltfilt, butter, find_peaks
 from scipy.optimize import minimize
 from matplotlib.ticker import EngFormatter
-from . import Process
+from numba import njit
+# TODO: Delete time later
+import time
 
 
-class PrepareData(Process):
+class PrepareData:
     def __init__(self,
                  raw_data,
+                 recording_type=None,
                  scale=None,
                  max_THz_frequency=100e12,
                  delay_value=None,
@@ -16,16 +19,18 @@ class PrepareData(Process):
                  highcut_position=100,
                  filter_signal=False,
                  lowcut_signal=1,
-                 highcut_signal=None):
-        super().__init__()
+                 highcut_signal=None,
+                 debug=True):
         # scale: Scale between [V] of position data and light time [s]
         #        For example for the APE 50 ps shaker it would be scale=50e-12/20 (50 ps for +-10V)
         # delay-Value: Delay between recorded position data and signal data (due to i.e. different bandwidth)
         # position/signal: Copy raw-data to pre-processed data
         self.data = {"scale": scale,
                      "delay_value": delay_value,
-                     "position": raw_data["position"],
-                     "signal": raw_data["signal"]}
+                     "position": raw_data["position"].to_numpy(),
+                     "signal": raw_data["signal"].to_numpy()}
+        self.recording_type = recording_type
+        self.debug = debug
         # Maximum THz frequency, which can be later displayed with interpolated data.
         # Large values mean many interpolation points, this can fill up RAM quickly when data contains 1000s of traces.
         self.max_THz_frequency = max_THz_frequency
@@ -66,13 +71,15 @@ class PrepareData(Process):
             idx = self.get_multiple_index(self.data["position"])
         self.data["number_of_traces"] = len(idx) - 1
         # Calculate the total record length in THz time, afterwards we can select the correct interpolation resolution
-        thz_recording_length = self.data["scale"] * np.max(self.data["position"]) - np.min(self.data["position"])
+        thz_recording_length = self.data["scale"] * (np.max(self.data["position"]) - np.min(self.data["position"]))
         for exponent in range(6, 20):
             if 0.5 * (2 ** exponent / thz_recording_length) > self.max_THz_frequency:
                 self.data["interpolation_resolution"] = 2 ** exponent
                 if self.debug:
-                    print(f"Found interpolation resolution to have more than {self.max_THz_frequency}: 2 ** {exponent}="
+                    print("Found interpolation resolution to have more than "
+                          f"{EngFormatter('Hz', places=1)(self.max_THz_frequency)}: 2 ** {exponent}="
                           f"{2 ** exponent} points")
+                break
         if self.data["interpolation_resolution"] is None:
             raise ValueError("Could not find a proper interpolation resolution between 2**6 and 2**20."
                              "Did you select the right scale [ps/V] and the right max_THz_frequency?")
@@ -91,10 +98,23 @@ class PrepareData(Process):
 
     def get_multiple_index(self, position):
         position = position - np.mean(position)
-
-        ff = np.fft.fftfreq(len(position), self.dt)
-        fyy = abs(np.fft.fft(np.abs(position)))
-        guess_freq = abs(ff[np.argmax(fyy[1:]) + 1])  # excluding the zero frequency "peak", which is related to offset
+        if self.filter_position and self.highcut_position is not None:
+            original_max_freq = 1 / self.dt
+            new_max_freq = 10 * self.highcut_position
+            reduction_factor = int(np.round(original_max_freq / new_max_freq))
+            signal_fft = np.abs(np.fft.rfft(np.abs(position[::reduction_factor])))
+            freq = np.fft.rfftfreq(len(position[::reduction_factor]), reduction_factor * self.dt)
+            # Excluding the zero frequency "peak", which is related to offset
+            guess_freq = np.abs(freq[np.argmax(signal_fft[1:]) + 1])
+        else:
+            start = time.time()
+            signal_fft = np.abs(np.fft.rfft(np.abs(position)))
+            freq = np.fft.rfftfreq(len(position), self.dt)
+            guess_freq = np.abs(freq[np.argmax(signal_fft[1:]) + 1])
+            end = time.time()
+            print(f"INFO: Taking rFFT over complete position array, taking {EngFormatter('s', places=1)(end - start)}."
+                  "If you specify filter_position=True and a reasonable highcut_position (in [Hz]), "
+                  "you can accelerate this process alot.")
 
         idx, _ = find_peaks(np.abs(position),
                             height=0.8 * np.max(np.abs(position)),
@@ -113,16 +133,18 @@ class PrepareData(Process):
         init_simplex = np.array([0, 10]).reshape(2, 1)
         xatol = 0.5
         fatol = 0.5
-        res = minimize(self._minimize, x0, method="Nelder-Mead", options={"disp": False,
-                                                                          "maxiter": 30,
-                                                                          "fatol": fatol,
-                                                                          "xatol": xatol,
-                                                                          "initial_simplex": init_simplex})
+        res = minimize(self.minimize_delay,
+                       x0,
+                       method="Nelder-Mead",
+                       options={"disp": False,
+                                "maxiter": 30,
+                                "fatol": fatol,
+                                "xatol": xatol,
+                                "initial_simplex": init_simplex})
         return int(res.x[0])
 
-    def _minimize(self, delay):
-        # start = timer()
-        delay = int(delay)
+    def minimize_delay(self, delay):
+        delay = int(np.round(delay))
         pos = np.copy(self.data["position"])
         sig = np.copy(self.data["signal"])
         idx = np.copy(self.trace_idx)
@@ -139,19 +161,14 @@ class PrepareData(Process):
         pos = pos[~np.isnan(pos)]
         sig = sig[~np.isnan(sig)]
         idx = idx[idx > 0]
-        peak_loc = np.zeros(len(np.unique(idx)))
-        for i, current_idx in enumerate(np.unique(idx)):
-            current_pos = pos[idx == current_idx]
-            current_sig = sig[idx == current_idx]
-            peak_loc[i] = current_pos[np.argmax(current_sig)]
-        # df = pd.DataFrame(data={"position": pos, "signal": sig, "trace": idx})
-        # peak_loc = df.loc[df.groupby(["trace"])["signal"].idxmax(), "position"]
+        only_idx = np.nonzero(np.diff(idx) != 0)[0]
+        pos_list = np.split(pos, only_idx)
+        sig_list = np.split(sig, only_idx)
+        peak_loc = [pos_trace[np.argmax(sig_trace)] for pos_trace, sig_trace in zip(pos_list, sig_list)]
         # Subtract avg. delay position at signal peak between forward/backward traces
         diff = np.mean(peak_loc[::2]) - np.mean(peak_loc[1::2])
         if self.debug:
-            print(f"Delay:\t{int(delay)}\tDiff:\t{diff:.3f}\tDiff^2:\t{diff ** 2}")
-            # end = timer()
-            # print(f"{(end - start):.3f} s")
+            print(f"Time sample delay:\t{int(delay)}\tDiff^2:\t{diff ** 2:.1e}")
         return diff ** 2
 
     def shift_position(self, delay_value):

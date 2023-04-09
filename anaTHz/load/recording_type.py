@@ -9,8 +9,10 @@ import pickle
 
 
 class RecordingType(Load):
-    def __init__(self, file_name):
+    def __init__(self, file_name, file_type):
         super().__init__(file_name)
+        if file_type == "HDF":
+            self.load_HDF()
 
     def load_HDF(self,
                  lockin_delay_ch="sample.auxin0.avg",

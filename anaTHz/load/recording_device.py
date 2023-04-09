@@ -1,4 +1,3 @@
-from load import Load
 # Python libraries
 import numpy as np
 from scipy.optimize import minimize
