@@ -1,6 +1,11 @@
 import numpy as np
 from scipy.signal import sosfiltfilt, butter, find_peaks
 from scipy.optimize import minimize
+# TODO: Remove matplotlib later (but not EngFormatter)
+import matplotlib
+
+matplotlib.use('TKAgg')
+import matplotlib.pyplot as plt
 from matplotlib.ticker import EngFormatter
 from numba import njit
 # TODO: Delete time later
@@ -21,9 +26,9 @@ class PrepareData:
                  lowcut_signal=1,
                  highcut_signal=None,
                  debug=True):
-        # scale: Scale between [V] of position data and light time [s]
-        #        For example for the APE 50 ps shaker it would be scale=50e-12/20 (50 ps for +-10V)
-        # delay-Value: Delay between recorded position data and signal data (due to i.e. different bandwidth)
+        # scale:        Scale between [V] of position data and light time [s]
+        #               For example for the APE 50 ps shaker it would be scale=50e-12/20 (50 ps for +-10V)
+        # delay-Value:  Delay between recorded position data and signal data (due to i.e. different bandwidth)
         # position/signal: Copy raw-data to pre-processed data
         self.data = {"scale": scale,
                      "delay_value": delay_value,
@@ -45,8 +50,7 @@ class PrepareData:
         self.dt = (raw_data["time"].iloc[-1] - raw_data["time"].iloc[0]) / (len(raw_data["time"]) - 1)
         self.data["number_of_traces"] = None
         self.data["interpolation_resolution"] = None
-        self.trace_idx = None
-        self.run()
+        self.data["trace_cut_index"] = None
 
     def run(self):
         if self.filter_position:
@@ -68,32 +72,69 @@ class PrepareData:
                 idx = np.array([np.argmax(self.data["position"]), np.argmin(self.data["position"])])
         else:
             # Get the peaks of the sinusoid (or similar) of the position data, then we know the number of traces
-            idx = self.get_multiple_index(self.data["position"])
-        self.data["number_of_traces"] = len(idx) - 1
-        # Calculate the total record length in THz time, afterwards we can select the correct interpolation resolution
+            self.data["trace_cut_index"] = self.get_multiple_index(self.data["position"])
+        self.cut_incomplete_traces()
+        if self.debug:
+            fig, ax = plt.subplots()
+            ax.plot(self.data["position"])
+            [ax.axvline(x, color="black", alpha=0.8) for x in self.data["trace_cut_index"]]
+            ax.set_xlabel("Time sample")
+            ax.set_ylabel("Voltage")
+            ax.grid(True)
+        # Calculate the total record length in THz time, afterward we can select the correct interpolation resolution
         thz_recording_length = self.data["scale"] * (np.max(self.data["position"]) - np.min(self.data["position"]))
         for exponent in range(6, 20):
             if 0.5 * (2 ** exponent / thz_recording_length) > self.max_THz_frequency:
                 self.data["interpolation_resolution"] = 2 ** exponent
                 if self.debug:
-                    print("Found interpolation resolution to have more than "
-                          f"{EngFormatter('Hz', places=1)(self.max_THz_frequency)}: 2 ** {exponent}="
+                    print("INFO: Found interpolation resolution to have more than "
+                          f"{EngFormatter('Hz', places=1)(self.max_THz_frequency)}: 2 ** {exponent} = "
                           f"{2 ** exponent} points")
                 break
         if self.data["interpolation_resolution"] is None:
             raise ValueError("Could not find a proper interpolation resolution between 2**6 and 2**20."
                              "Did you select the right scale [ps/V] and the right max_THz_frequency?")
-        self.trace_idx = np.zeros(len(self.data["position"]))
-        self.trace_idx[idx] = 1
-        # Contains the index of the trace
-        self.trace_idx = np.cumsum(self.trace_idx).astype(int)
-        self.cut_incomplete_traces()
         # If we recorded multiple forward/backward traces, we can calculate the delay between position and signal.
         if self.recording_type == "multi_cycle":
             # Get timedelay between position and signal
+            if self.debug:
+                fig, ax = plt.subplots(nrows=2, ncols=1, sharex=True, sharey=True)
+                split_pos = np.split(self.data["position"], self.data["trace_cut_index"])
+                split_sig = np.split(self.data["signal"], self.data["trace_cut_index"])
+                for i in range(1, 10):
+                    if i % 2:
+                        ax[0].plot(self.data["scale"] * split_pos[i],
+                                   split_sig[i],
+                                   color="tab:blue", alpha=0.8)
+                    else:
+                        ax[0].plot(self.data["scale"] * split_pos[i],
+                                   split_sig[i],
+                                   color="tab:orange", alpha=0.8)
+                ax[0].xaxis.set_major_formatter(EngFormatter(unit='s'))
+                ax[0].yaxis.set_major_formatter(EngFormatter(unit='V'))
+                ax[0].set_title('Signal vs. Delay without time delay compensation')
             if self.data["delay_value"] is None:
                 self.data["delay_value"] = self.get_delay()
             self.shift_position(self.data["delay_value"])
+            if self.debug:
+                split_pos = np.split(self.data["position"], self.data["trace_cut_index"])
+                split_sig = np.split(self.data["signal"], self.data["trace_cut_index"])
+                for i in range(1, 10):
+                    if i % 2:
+                        ax[1].plot(self.data["scale"] * split_pos[i],
+                                   split_sig[i],
+                                   color="tab:blue", alpha=0.8)
+                    else:
+                        ax[1].plot(self.data["scale"] * split_pos[i],
+                                   split_sig[i],
+                                   color="tab:orange", alpha=0.8)
+                ax[1].xaxis.set_major_formatter(EngFormatter(unit='s'))
+                ax[1].yaxis.set_major_formatter(EngFormatter(unit='V'))
+                delay_amount = self.data["delay_value"] * self.dt
+                ax[1].set_title(
+                    f'Signal vs. Delay with {self.data["delay_value"]} samples ' +
+                    f'({EngFormatter("s", places=1)(delay_amount)}) time delay compensation')
+                plt.tight_layout()
         return self.data
 
     def get_multiple_index(self, position):
@@ -123,16 +164,18 @@ class PrepareData:
 
     def cut_incomplete_traces(self):
         """Cut any incomplete trace from the array before the first delay peak or after the last delay peak"""
-        mask = (self.trace_idx == 0) | (self.trace_idx == np.max(self.trace_idx))
-        self.data["position"] = self.data["position"][~mask]
-        self.data["signal"] = self.data["signal"][~mask]
-        self.trace_idx = self.trace_idx[~mask]
+        self.data["position"] = self.data["position"][self.data["trace_cut_index"][0]:self.data["trace_cut_index"][-1]]
+        self.data["signal"] = self.data["signal"][self.data["trace_cut_index"][0]:self.data["trace_cut_index"][-1]]
+        self.data["trace_cut_index"] = self.data["trace_cut_index"][1:-1] - self.data["trace_cut_index"][0]
+        self.data["number_of_traces"] = len(self.data["trace_cut_index"]) + 1
 
     def get_delay(self):
         x0 = [0]
         init_simplex = np.array([0, 10]).reshape(2, 1)
         xatol = 0.5
         fatol = 0.5
+        if self.debug:
+            print("INFO: Optimizing delay between position and signal array to align forward and backward THz traces.")
         res = minimize(self.minimize_delay,
                        x0,
                        method="Nelder-Mead",
@@ -141,29 +184,27 @@ class PrepareData:
                                 "fatol": fatol,
                                 "xatol": xatol,
                                 "initial_simplex": init_simplex})
-        return int(res.x[0])
+        if self.debug:
+            print(f"INFO: A delay of {int(np.round(res.x[0]))} minimizes the error "
+                  "and aligns forward and backward traces.")
+        return int(np.round(res.x[0]))
 
     def minimize_delay(self, delay):
         delay = int(np.round(delay))
         pos = np.copy(self.data["position"])
         sig = np.copy(self.data["signal"])
-        idx = np.copy(self.trace_idx)
         if delay < 0:
-            pos = np.roll(pos, delay)
+            sig = np.roll(sig, delay)
             pos[delay:] = np.nan
             sig[delay:] = np.nan
-            idx[delay:] = -1  # int does not know float nan (only works for selected arraylength > 1)
         else:
-            pos = np.roll(pos, delay)
+            sig = np.roll(sig, delay)
             pos[:delay] = np.nan
             sig[:delay] = np.nan
-            idx[:delay] = -1
         pos = pos[~np.isnan(pos)]
         sig = sig[~np.isnan(sig)]
-        idx = idx[idx > 0]
-        only_idx = np.nonzero(np.diff(idx) != 0)[0]
-        pos_list = np.split(pos, only_idx)
-        sig_list = np.split(sig, only_idx)
+        pos_list = np.split(pos, self.data["trace_cut_index"])
+        sig_list = np.split(sig, self.data["trace_cut_index"])
         peak_loc = [pos_trace[np.argmax(sig_trace)] for pos_trace, sig_trace in zip(pos_list, sig_list)]
         # Subtract avg. delay position at signal peak between forward/backward traces
         diff = np.mean(peak_loc[::2]) - np.mean(peak_loc[1::2])
@@ -172,19 +213,15 @@ class PrepareData:
         return diff ** 2
 
     def shift_position(self, delay_value):
-        self.data["position"] = np.roll(self.data["position"], delay_value)
+        self.data["signal"] = np.roll(self.data["signal"], delay_value)
         if delay_value < 0:
             self.data["position"][delay_value:] = np.nan
             self.data["signal"][delay_value:] = np.nan
-            self.trace_idx[delay_value:] = -1
         else:
             self.data["position"][:delay_value] = np.nan
             self.data["signal"][:delay_value] = np.nan
-            self.trace_idx[:delay_value] = -1
         self.data["position"] = self.data["position"][~np.isnan(self.data["position"])]
         self.data["signal"] = self.data["signal"][~np.isnan(self.data["signal"])]
-        # int doesn't understand np.nan, so it takes -MAX_INT value
-        self.trace_idx = self.trace_idx[self.trace_idx > 0]
 
     def butter_filter(self, data, fs, lowcut=None, highcut=None, order=5):
         sos = self._butter_coeff(fs, lowcut, highcut, order=order)

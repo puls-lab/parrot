@@ -16,11 +16,11 @@ class Process:
             raw_data[mode] = {"time": df.iloc[:, 0],
                               "position": df.iloc[:, 1],
                               "signal": df.iloc[:, 2]}
-        data = {"light": PrepareData(raw_data["light"], self.recording_type, **kwargs),
+        data = {"light": PrepareData(raw_data["light"], self.recording_type, **kwargs).run(),
                 "dark": {}}
         data["dark"] = PrepareData(raw_data["dark"],
                                    delay_value=data["light"]["delay_value"],
-                                   **kwargs)
+                                   **kwargs).run()
         data["light"] = CutData(data["light"])
         data["dark"] = CutData(data["dark"])
         return data
