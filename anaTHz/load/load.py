@@ -46,7 +46,7 @@ class Load:
                     self.signal = f[dewesoft_signal_ch][:]
                     self.time = np.linspace(0, len(self.signal) / sample_rate - 1 / sample_rate,
                                             len(self.signal))
-        return self.time, self.delay, self.signal
+        return {"time": self.time, "position": self.delay, "signal": self.signal}
 
     def detect_file_type(self):
         """If the file_type is not given, try to detect the filetype from file extension and set accordingly."""

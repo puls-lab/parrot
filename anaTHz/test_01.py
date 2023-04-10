@@ -1,23 +1,30 @@
 import load.load
 import process.process_data
-import pandas as pd
+import plot.plot
+# TODO: Delete time later
+import time
+from matplotlib.ticker import EngFormatter
+
+start = time.time()
+load_obj = load.load.Load(
+    file_name=r"C:\Users\Tim\PycharmProjects\anaTHzv2\anaTHz\example_data\dark.h5",
+    recording_device="DewesoftDAQ",
+    recording_type="multi_cycle")
+dark = load_obj.run()
 
 load_obj = load.load.Load(
-    file_name=r"\example_data\dark.h5",
+    file_name=r"C:\Users\Tim\PycharmProjects\anaTHzv2\anaTHz\example_data\light.h5",
     recording_device="DewesoftDAQ",
     recording_type="multi_cycle")
-time, position, signal = load_obj.run()
-dark_df = pd.DataFrame(data={"time": time,
-                             "position": position,
-                             "signal": signal})
-load_obj = load.load.Load(
-    file_name=r"\example_data\light.h5",
-    recording_device="DewesoftDAQ",
-    recording_type="multi_cycle")
-time, position, signal = load_obj.run()
-light_df = pd.DataFrame(data={"time": time,
-                              "position": position,
-                              "signal": signal})
+light = load_obj.run()
+end = time.time()
+print(f"TIME: Loading files: {EngFormatter('s', places=1)(end - start)}")
+
+start = time.time()
 process_obj = process.process_data.Process()
-data = process_obj.dark_and_thz(light_df, dark_df, scale=15e-12 / 20)
-print(data.keys())
+data = process_obj.dark_and_thz(light, dark, scale=15e-12 / 20)
+end = time.time()
+print(f"TIME: Processing files: {EngFormatter('s', places=1)(end - start)}")
+
+plot_obj = plot.plot.Plot()
+plot_obj.plot_full_multi_cycle(data)

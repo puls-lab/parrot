@@ -10,19 +10,23 @@ class Process:
         self.recording_type = recording_type
         pass
 
-    def dark_and_thz(self, df_light, df_dark, **kwargs):
+    def dark_and_thz(self, light, dark, **kwargs):
         raw_data = {}
-        for mode, df in zip(["light", "dark"], [df_light, df_dark]):
-            raw_data[mode] = {"time": df.iloc[:, 0],
-                              "position": df.iloc[:, 1],
-                              "signal": df.iloc[:, 2]}
+        for mode, data in zip(["light", "dark"], [light, dark]):
+            raw_data[mode] = {"time": data["time"],
+                              "position": data["position"],
+                              "signal": data["signal"]}
         data = {"light": PrepareData(raw_data["light"], self.recording_type, **kwargs).run(),
                 "dark": {}}
         data["dark"] = PrepareData(raw_data["dark"],
                                    delay_value=data["light"]["delay_value"],
                                    **kwargs).run()
-        data["light"] = CutData(data["light"])
-        data["dark"] = CutData(data["dark"])
+        for mode in ["light", "dark"]:
+            data[mode] = CutData(data[mode]).run()
+            post_obj = PostProcessData(data[mode]["light_time"])
+            window = post_obj.super_gaussian()
+            data[mode]["single_traces"] *= window.reshape(-1, 1)
+            data[mode]["average"]["time_domain"] *= window
         return data
 
     def thz_only(self, light_df):

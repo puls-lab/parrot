@@ -25,15 +25,15 @@ class PrepareData:
                  filter_signal=False,
                  lowcut_signal=1,
                  highcut_signal=None,
-                 debug=True):
+                 debug=False):
         # scale:        Scale between [V] of position data and light time [s]
         #               For example for the APE 50 ps shaker it would be scale=50e-12/20 (50 ps for +-10V)
         # delay-Value:  Delay between recorded position data and signal data (due to i.e. different bandwidth)
         # position/signal: Copy raw-data to pre-processed data
         self.data = {"scale": scale,
                      "delay_value": delay_value,
-                     "position": raw_data["position"].to_numpy(),
-                     "signal": raw_data["signal"].to_numpy()}
+                     "position": raw_data["position"],
+                     "signal": raw_data["signal"]}
         self.recording_type = recording_type
         self.debug = debug
         # Maximum THz frequency, which can be later displayed with interpolated data.
@@ -47,7 +47,7 @@ class PrepareData:
         self.lowcut_signal = lowcut_signal
         self.highcut_signal = highcut_signal
         # Timestep in lab time
-        self.dt = (raw_data["time"].iloc[-1] - raw_data["time"].iloc[0]) / (len(raw_data["time"]) - 1)
+        self.dt = (raw_data["time"][-1] - raw_data["time"][0]) / (len(raw_data["time"]) - 1)
         self.data["number_of_traces"] = None
         self.data["interpolation_resolution"] = None
         self.data["trace_cut_index"] = None
@@ -82,9 +82,11 @@ class PrepareData:
             ax.set_ylabel("Voltage")
             ax.grid(True)
         # Calculate the total record length in THz time, afterward we can select the correct interpolation resolution
-        thz_recording_length = self.data["scale"] * (np.max(self.data["position"]) - np.min(self.data["position"]))
+        self.data["thz_recording_length"] = self.data["scale"] * (
+                    np.max(self.data["position"]) - np.min(self.data["position"]))
+        self.data["thz_start_offset"] = self.data["scale"] * np.min(self.data["position"])
         for exponent in range(6, 20):
-            if 0.5 * (2 ** exponent / thz_recording_length) > self.max_THz_frequency:
+            if 0.5 * (2 ** exponent / self.data["thz_recording_length"]) > self.max_THz_frequency:
                 self.data["interpolation_resolution"] = 2 ** exponent
                 if self.debug:
                     print("INFO: Found interpolation resolution to have more than "

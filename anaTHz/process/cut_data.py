@@ -1,14 +1,11 @@
 import numpy as np
-from numba import njit, prange
 
 
-@njit(parallel=True)
-def parallel_processing(matrix, total_position, total_signal, trace_idx, interpolated_delay):
+def process_all_traces(matrix, total_position, total_signal, trace_idx, interpolated_delay):
     pos_list = np.split(total_position, trace_idx)
     sig_list = np.split(total_signal, trace_idx)
-    for i in prange(len(pos_list)):
-        position = pos_list[i]
-        signal = sig_list[i]
+    i = 0
+    for position, signal in zip(pos_list, sig_list):
         # Numpy's interpolation method needs sorted, strictly increasing values
         signal = signal[np.argsort(position)]
         position = position[np.argsort(position)]
@@ -23,6 +20,7 @@ def parallel_processing(matrix, total_position, total_signal, trace_idx, interpo
         #                    fill_value=(0, 0))
         # signal = f_interp(interpolated_delay)
         matrix[:, i] = np.interp(interpolated_delay, position, signal)
+        i += 1
     return matrix
 
 
@@ -32,7 +30,6 @@ class CutData:
         self.data = data
         self.data["interpolated_position"] = np.linspace(0, 1, self.data["interpolation_resolution"])
         self.debug = debug
-        self.run()
 
     def run(self):
         """Normalize the position signal (i.e. a voltage signal from a shaker) between 0 and 1."""
@@ -41,12 +38,14 @@ class CutData:
         # Create matrix, containing each single, interpolated THz trace
         matrix = np.zeros((self.data["interpolation_resolution"], self.data["number_of_traces"]))
         if self.debug:
-            print(f"Creating matrix with {matrix.shape}. Starting parallel-processing...")
-        matrix = parallel_processing(matrix,
-                                     position,
-                                     self.data["signal"],
-                                     self.data["trace_cut_index"],
-                                     self.data["interpolated_position"])
-        self.data["interpolated_position"] *= self.data["scale"]
+            print(f"Creating matrix with {matrix.shape}. Starting interpolation for all traces...")
+        matrix = process_all_traces(matrix,
+                                    position,
+                                    self.data["signal"],
+                                    self.data["trace_cut_index"],
+                                    self.data["interpolated_position"])
+        self.data["light_time"] = self.data["thz_recording_length"] * self.data["interpolated_position"] + \
+                                  self.data["thz_start_offset"]
         self.data["single_traces"] = matrix
+        self.data["average"] = {"time_domain": np.mean(matrix, axis=1)}
         return self.data
