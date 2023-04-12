@@ -1,5 +1,6 @@
 import load.load
 import process.process_data
+import process.post_process_data
 import plot.plot
 # TODO: Delete time later
 import time
@@ -26,5 +27,14 @@ data = process_obj.dark_and_thz(light, dark, scale=15e-12 / 20)
 end = time.time()
 print(f"TIME: Processing files: {EngFormatter('s', places=1)(end - start)}")
 
+post_obj = process.post_process_data.PostProcessData(data)
+_ = post_obj.subtract_polynomial(order=4)
+#data = post_obj.super_gaussian(window_width=0.6)
+data = post_obj.flat_top()
+#_ = post_obj.pad_zeros(new_frequency_resolution=25e9)
+data = post_obj.calc_fft()
+print(data.keys())
+print(data["light"].keys())
+
 plot_obj = plot.plot.Plot()
-plot_obj.plot_full_multi_cycle(data)
+plot_obj.plot_simple_multi_cycle(data)

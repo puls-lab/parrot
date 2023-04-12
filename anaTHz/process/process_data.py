@@ -23,10 +23,6 @@ class Process:
                                    **kwargs).run()
         for mode in ["light", "dark"]:
             data[mode] = CutData(data[mode]).run()
-            post_obj = PostProcessData(data[mode]["light_time"])
-            window = post_obj.super_gaussian()
-            data[mode]["single_traces"] *= window.reshape(-1, 1)
-            data[mode]["average"]["time_domain"] *= window
         return data
 
     def thz_only(self, light_df):

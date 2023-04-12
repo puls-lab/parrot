@@ -33,59 +33,37 @@ class Plot:
             figsize = (12, 8)
         fig, ax = plt.subplots(nrows=1, ncols=3, figsize=figsize)
         # First subplot, time domain
-        try:
-            std_traces = np.std(data["dark"]["single_traces"], axis=1)
-            # max_traces = np.max(data["dark"]["single_traces"], axis=1)
-            # min_traces = np.min(data["dark"]["single_traces"], axis=1)
-            # ax[0].fill_between(data["dark"]["light_time"],
-            #                   min_traces,
-            #                   max_traces,
-            #                   color="black",
-            #                   alpha=0.3,
-            #                   label="Min/Max of dark traces")
-            ax[0].fill_between(data["dark"]["light_time"],
-                               data["dark"]["average"]["time_domain"] - std_traces,
-                               data["dark"]["average"]["time_domain"] + std_traces,
-                               color="black",
+        for mode in data.keys():
+            if mode == "light":
+                label_text = "THz"
+                color = "tab:orange"
+            else:
+                label_text = "dark"
+                color = "black"
+            std_traces = np.std(data[mode]["single_traces"], axis=1)
+            ax[0].fill_between(data[mode]["light_time"],
+                               data[mode]["average"]["time_domain"] - std_traces,
+                               data[mode]["average"]["time_domain"] + std_traces,
+                               color=color,
                                alpha=0.3,
                                label="Standard deviation of dark traces")
-            ax[0].plot(data["dark"]["light_time"],
-                       data["dark"]["average"]["time_domain"],
-                       color="black",
-                       alpha=0.6,
-                       label=f"Average of {data['dark']['number_of_traces']} dark traces")
-        except KeyError:
-            pass
-        std_traces = np.std(data["light"]["single_traces"], axis=1)
-        # max_traces = np.max(data["light"]["single_traces"], axis=1)
-        # min_traces = np.min(data["light"]["single_traces"], axis=1)
-        # ax[0].fill_between(data["light"]["light_time"],
-        #                   min_traces,
-        #                   max_traces,
-        #                   color="#402e32",
-        #                   alpha=0.3,
-        #                   label="Min/Max of THz traces")
-        ax[0].fill_between(data["light"]["light_time"],
-                           data["light"]["average"]["time_domain"] - std_traces,
-                           data["light"]["average"]["time_domain"] + std_traces,
-                           color="#6b443b",
-                           alpha=0.3,
-                           label="Standard deviation of THz traces")
-        ax[0].plot(data["light"]["light_time"],
-                   data["light"]["average"]["time_domain"],
-                   color="tab:orange",
-                   alpha=0.8,
-                   label=f"Average of {data['light']['number_of_traces']} THz traces")
 
+            ax[0].plot(data[mode]["light_time"],
+                       data[mode]["average"]["time_domain"],
+                       color=color,
+                       alpha=0.8,
+                       label=f"Average of {data[mode]['number_of_traces']} {label_text} traces")
+        ax[0].grid(True)
         # If the data got artificially extended with zeros in timedomain,
         # we want to limit the x-axis in timedomain to just zoom on the data.
-        # The data is not cutted off, you can still pan the axis window,
-        # but its outside the selected range just zero.
+        # The data is not cut off, you can still pan the axis window,
+        # but it is outside the selected range just zero.
         data_start = data["light"]["average"]["time_domain"].nonzero()[0][0]
         data_stop = data["light"]["average"]["time_domain"].nonzero()[0][-1]
         ax[0].set_xlim([data["light"]["light_time"][data_start], data["light"]["light_time"][data_stop]])
         if snr_timedomain:
             # Filter all zeros in array (from windowing, extra padding, etc.) since we cannot divide by 0
+            std_traces = np.std(data["light"]["single_traces"], axis=1)
             filter_zeros = (std_traces == 0)
             # Since the filter is True, when there is zero, we need to use the opposite of that.
             snr_timedomain_max = np.nanmax(np.abs(data["light"]["average"]["time_domain"][~filter_zeros]) /
@@ -157,7 +135,7 @@ class Plot:
         ax[1].grid(True)
         if water_absorption_lines:
             h2o = np.loadtxt("plot/WaterAbsorptionLines.csv", delimiter=",", skiprows=8)
-            filter_frequency = (h2o[:, 0] >= self.min_THz_frequency) & (h2o[:, 0] <= self.max_THz_frequency)
+            filter_frequency = (h2o[:, 0] >= self.start_bandwidth) & (h2o[:, 0] <= self.stop_bandwidth)
             # Filter for specified frequency range
             h2o = h2o[filter_frequency, :]
             alpha_values = np.linspace(0.4, 0.05, len(h2o) - 1)
@@ -184,6 +162,100 @@ class Plot:
         ax[2].set_ylabel("Peak Dynamic range, frequency domain")
         ax[2].legend(loc="upper left")
         ax[2].grid(True)
+        plt.tight_layout()
+        plt.show()
+
+    def plot_simple_multi_cycle(self, data, figsize=None, snr_timedomain=True, water_absorption_lines=True):
+        if figsize is None:
+            figsize = (12, 8)
+        fig, ax = plt.subplots(nrows=1, ncols=2, figsize=figsize)
+        fig_title = ""
+        # First subplot, time domain
+        for mode in data.keys():
+            if mode == "light":
+                label_text = "THz"
+                color = "tab:orange"
+            else:
+                label_text = "dark"
+                color = "black"
+            ax[0].plot(data[mode]["light_time"],
+                       data[mode]["average"]["time_domain"],
+                       color=color,
+                       alpha=0.8,
+                       label=f"Average of {data[mode]['number_of_traces']} {label_text} traces")
+        ax[0].grid(True)
+        # If the data got artificially extended with zeros in timedomain,
+        # we want to limit the x-axis in timedomain to just zoom on the data.
+        # The data is not cut off, you can still pan the axis window,
+        # but it is outside the selected range just zero.
+        data_start = data["light"]["average"]["time_domain"].nonzero()[0][0]
+        data_stop = data["light"]["average"]["time_domain"].nonzero()[0][-1]
+        ax[0].set_xlim([data["light"]["light_time"][data_start], data["light"]["light_time"][data_stop]])
+        if snr_timedomain:
+            # Filter all zeros in array (from windowing, extra padding, etc.) since we cannot divide by 0
+            std_traces = np.std(data["light"]["single_traces"], axis=1)
+            filter_zeros = (std_traces == 0)
+            # Since the filter is True, when there is zero, we need to use the opposite of that.
+            snr_timedomain_max = np.nanmax(np.abs(data["light"]["average"]["time_domain"][~filter_zeros]) /
+                                           std_traces[~filter_zeros])
+
+            fig_title += r"$\mathrm{SNR}_{\mathrm{max}}$" + f" (timedomain): {int(snr_timedomain_max)}"
+        ax[0].legend(loc='upper right')
+        ax[0].xaxis.set_major_formatter(EngFormatter(unit='s'))
+        ax[0].set_xlabel("Time")
+        ax[0].yaxis.set_major_formatter(EngFormatter(unit='V'))
+
+        # Second subplot, frequency-domain
+        self.extract_bandwidth(data)
+        # Prepare data, for an accumulated mean fo all single-traces calculate the FFT and dynamic range
+        frequency_dark, dark_fft = calc_fft(data["dark"]["light_time"], data["dark"]["average"]["time_domain"])
+        frequency_light, light_fft = calc_fft(data["light"]["light_time"], data["light"]["average"]["time_domain"])
+        filter_frequency = (frequency_dark >= self.start_bandwidth) & (frequency_dark <= self.stop_bandwidth)
+        dark_norm = np.mean(np.abs(dark_fft[filter_frequency]) ** 2)
+        filter_frequency = (frequency_dark >= self.min_THz_frequency) & (frequency_dark <= self.max_THz_frequency)
+        ax[1].plot(frequency_dark[filter_frequency],
+                   10 * np.log10(np.abs(dark_fft[filter_frequency]) ** 2 / dark_norm),
+                   color="black",
+                   alpha=0.8,
+                   label=f"{data['dark']['number_of_traces']} dark traces averaged")
+        ax[1].axvline(self.start_bandwidth,
+                      linestyle="--",
+                      color="black",
+                      alpha=0.5)
+        ax[1].axvline(self.stop_bandwidth,
+                      linestyle="--",
+                      color="black",
+                      alpha=0.5,
+                      label=f"Bandwidth: {EngFormatter('Hz', places=1)(self.bandwidth)}")
+        filter_frequency = (frequency_light >= self.min_THz_frequency) & (frequency_light <= self.max_THz_frequency)
+        frequency, signal_fft = frequency_light[filter_frequency], light_fft[filter_frequency]
+        ax[1].plot(frequency, 10 * np.log10(np.abs(signal_fft) ** 2 / dark_norm),
+                   color="tab:orange",
+                   alpha=0.8,
+                   label=f"{data['light']['number_of_traces']} averaged THz traces")
+        ax[1].xaxis.set_major_formatter(EngFormatter(unit='Hz'))
+        ax[1].set_ylabel(r"Power spectrum [dB]")
+        ax[1].set_xlabel("Frequency")
+        ax[1].grid(True)
+        if water_absorption_lines:
+            h2o = np.loadtxt("plot/WaterAbsorptionLines.csv", delimiter=",", skiprows=8)
+            filter_frequency = (h2o[:, 0] >= self.start_bandwidth) & (h2o[:, 0] <= self.stop_bandwidth)
+            # Filter for specified frequency range
+            h2o = h2o[filter_frequency, :]
+            alpha_values = np.linspace(0.4, 0.05, len(h2o) - 1)
+            h2o_sorted_freq = h2o[np.argsort(h2o[:, 2]), 0]
+            ax[1].axvline(h2o_sorted_freq[0], linewidth=1, color='tab:blue', alpha=0.5, label=r"$H_{2}O$ absorption "
+                                                                                              "lines")
+            [ax[1].axvline(_x, linewidth=1, color='tab:blue', alpha=alpha_values[i]) for i, _x in
+             enumerate(h2o_sorted_freq[1:])]
+        ax[1].legend(loc="upper right")
+
+        filter_dark = (frequency_dark >= self.start_bandwidth) & (frequency_dark <= self.stop_bandwidth)
+        filter_light = (frequency_light >= self.start_bandwidth) & (frequency_light <= self.stop_bandwidth)
+        dynamic_range = np.max(np.abs(light_fft[filter_light]) ** 2) / np.mean(np.abs(dark_fft[filter_dark]) ** 2)
+        fig_title += r", $\mathrm{DR}_{\mathrm{peak}}$" + f" (freq.-domain): {int(np.round(10 * np.log10(dynamic_range)))} dB"
+        fig.subplots_adjust(top=0.9)
+        fig.suptitle(fig_title)
         plt.tight_layout()
         plt.show()
 
