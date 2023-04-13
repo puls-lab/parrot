@@ -17,12 +17,12 @@ class PrepareData:
                  raw_data,
                  recording_type=None,
                  scale=None,
-                 max_THz_frequency=100e12,
+                 max_THz_frequency=50e12,
                  delay_value=None,
                  filter_position=True,
                  lowcut_position=None,
                  highcut_position=100,
-                 filter_signal=False,
+                 filter_signal=True,
                  lowcut_signal=1,
                  highcut_signal=None,
                  debug=False):
@@ -58,11 +58,18 @@ class PrepareData:
                                                        1 / self.dt,
                                                        lowcut=self.lowcut_position,
                                                        highcut=self.highcut_position)
+        # Calculate the total record length in THz time, afterward we can select the correct interpolation resolution
+        self.data["thz_recording_length"] = self.data["scale"] * (
+                np.max(self.data["position"]) - np.min(self.data["position"]))
+        self.data["thz_start_offset"] = self.data["scale"] * np.min(self.data["position"])
         if self.filter_signal:
+            if self.highcut_signal is None:
+                self.highcut_signal = self.max_THz_frequency
             self.data["signal"] = self.butter_filter(self.data["signal"],
                                                      1 / self.dt,
                                                      lowcut=self.lowcut_signal,
                                                      highcut=self.highcut_signal)
+            self.resample_data()
         if self.recording_type == "single_cycle":
             if np.argmin(self.data["position"]) - np.argmax(self.data["position"]) < 0:
                 # Either first minimum, then maximum
@@ -72,7 +79,7 @@ class PrepareData:
                 idx = np.array([np.argmax(self.data["position"]), np.argmin(self.data["position"])])
         else:
             # Get the peaks of the sinusoid (or similar) of the position data, then we know the number of traces
-            self.data["trace_cut_index"] = self.get_multiple_index(self.data["position"])
+            self.data["trace_cut_index"] = self.get_multiple_index()
         self.cut_incomplete_traces()
         if self.debug:
             fig, ax = plt.subplots()
@@ -81,10 +88,6 @@ class PrepareData:
             ax.set_xlabel("Time sample")
             ax.set_ylabel("Voltage")
             ax.grid(True)
-        # Calculate the total record length in THz time, afterward we can select the correct interpolation resolution
-        self.data["thz_recording_length"] = self.data["scale"] * (
-                    np.max(self.data["position"]) - np.min(self.data["position"]))
-        self.data["thz_start_offset"] = self.data["scale"] * np.min(self.data["position"])
         for exponent in range(6, 20):
             if 0.5 * (2 ** exponent / self.data["thz_recording_length"]) > self.max_THz_frequency:
                 self.data["interpolation_resolution"] = 2 ** exponent
@@ -139,8 +142,28 @@ class PrepareData:
                 plt.tight_layout()
         return self.data
 
-    def get_multiple_index(self, position):
-        position = position - np.mean(position)
+    def resample_data(self):
+        """This is a little bit tricky, since we have the sampling time in lab time but not in "light time" [ps].
+        The self.max_THz_frequency is defined in the time frame of the THz sample.
+
+        The max. slope of the position data vs. lab time is the smallest max. THz frequency
+        """
+        # TODO: Needs to be checked
+        max_native_frequency = 1 / (np.max(np.gradient(self.data["position"], self.dt)) * self.data[
+            "scale"] * self.dt)  # [V/s] * [ps/V] --> scaling factor
+        factor = np.int(np.floor(max_native_frequency / self.max_THz_frequency))
+        current_time = np.arange(0, len(self.data["position"]) * self.dt, self.dt)
+        new_dt = factor * self.dt
+        new_time = np.arange(0, len(self.data["position"]) * self.dt, new_dt)
+        if self.debug:
+            print(
+                f"INFO: Current recording length: {self.dt} time samples. New recording length {new_dt} time samples.")
+        self.data["position"] = np.interp(new_time, current_time, self.data["position"])
+        self.data["signal"] = np.interp(new_time, current_time, self.data["signal"])
+        self.dt = new_dt
+
+    def get_multiple_index(self):
+        position = self.data["position"] - np.mean(self.data["position"])
         if self.filter_position and self.highcut_position is not None:
             original_max_freq = 1 / self.dt
             new_max_freq = 10 * self.highcut_position
