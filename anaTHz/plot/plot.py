@@ -37,9 +37,11 @@ class Plot:
             if mode == "light":
                 label_text = "THz"
                 color = "tab:orange"
-            else:
+            elif mode == "dark":
                 label_text = "dark"
                 color = "black"
+            else:
+                continue
             std_traces = np.std(data[mode]["single_traces"], axis=1)
             ax[0].fill_between(data[mode]["light_time"],
                                data[mode]["average"]["time_domain"] - std_traces,
@@ -55,9 +57,8 @@ class Plot:
                        label=f"Average of {data[mode]['number_of_traces']} {label_text} traces")
         ax[0].grid(True)
         # If the data got artificially extended with zeros in timedomain,
-        # we want to limit the x-axis in timedomain to just zoom on the data.
-        # The data is not cut off, you can still pan the axis window,
-        # but it is outside the selected range just zero.
+        # we want to limit the x-axis in timedomain and just zoom-in on real data.
+        # The presented data is not cut off, you can still pan the axis window.
         data_start = data["light"]["average"]["time_domain"].nonzero()[0][0]
         data_stop = data["light"]["average"]["time_domain"].nonzero()[0][-1]
         ax[0].set_xlim([data["light"]["light_time"][data_start], data["light"]["light_time"][data_stop]])
@@ -175,9 +176,11 @@ class Plot:
             if mode == "light":
                 label_text = "THz"
                 color = "tab:orange"
-            else:
+            elif mode == "dark":
                 label_text = "dark"
                 color = "black"
+            else:
+                continue
             ax[0].plot(data[mode]["light_time"],
                        data[mode]["average"]["time_domain"],
                        color=color,

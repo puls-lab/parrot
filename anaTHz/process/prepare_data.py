@@ -28,7 +28,7 @@ class PrepareData:
                  debug=False):
         # scale:        Scale between [V] of position data and light time [s]
         #               For example for the APE 50 ps shaker it would be scale=50e-12/20 (50 ps for +-10V)
-        # delay-Value:  Delay between recorded position data and signal data (due to i.e. different bandwidth)
+        # delay-value:  Delay between recorded position data and signal data (due to i.e. different bandwidth)
         # position/signal: Copy raw-data to pre-processed data
         self.data = {"scale": scale,
                      "delay_value": delay_value,
@@ -151,7 +151,7 @@ class PrepareData:
         # TODO: Needs to be checked
         max_native_frequency = 1 / (np.max(np.gradient(self.data["position"], self.dt)) * self.data[
             "scale"] * self.dt)  # [V/s] * [ps/V] --> scaling factor
-        factor = np.int(np.floor(max_native_frequency / self.max_THz_frequency))
+        factor = np.int64(np.floor(max_native_frequency / self.max_THz_frequency))
         current_time = np.arange(0, len(self.data["position"]) * self.dt, self.dt)
         new_dt = factor * self.dt
         new_time = np.arange(0, len(self.data["position"]) * self.dt, new_dt)

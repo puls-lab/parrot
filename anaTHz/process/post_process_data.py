@@ -107,7 +107,7 @@ class PostProcessData:
             self.applied_functions.append("subtract_polynomial")
             return self.data
 
-    def get_VDI_statistics(self):
+    def get_statistics(self):
         """
         Basic definition of Dynamic range and Signal-To-Noise ratio as defined in:
 
@@ -118,8 +118,8 @@ class PostProcessData:
 
         More detailed definition according to the VDI/VDE 5590 standard:
         > Time domain
-        SNR = mean(light_at_maximum(t)) / STD(light_at_maximum(t))
-        DR = ( mean(light_at_maximum(t)) - mean(noise_at_maximum_of_light(t)) ) / STD(noise_at_maximum_of_light)
+        SNR(t) = mean(light_at_maximum(t)) / STD(light_at_maximum(t))
+        DR(t) = ( mean(light_at_maximum(t)) - mean(noise_at_maximum_of_light(t)) ) / STD(noise_at_maximum_of_light(t))
         > Frequency domain
         SNR(f) = mean(light(f)) / STD(light(f))
         DR(f) = ( mean(light(f)) - mean(noise(f)) ) / STD(noise(f))
@@ -127,23 +127,22 @@ class PostProcessData:
         if "light" not in self.data.keys():
             raise NotImplementedError("No light-data detected, cannot calculate any meaningful SNR/DR.")
         else:
-            self.data["light"]["statistics"] = {}
+            self.data["statistics"] = {}
             # Signal-to-Noise ratio (SNR)
             # Time Domain
             # Calculate mean signal
             mean_light = np.mean(self.data["light"]["single_traces"], axis=1)
             # Extract index of peak location
             index = np.argmax(mean_light)
-            # TODO: Check if index is correct (row or column)
             std_of_peak = np.std(self.data["light"]["single_traces"][index, :])
             peak_snr_td = np.max(mean_light) / std_of_peak
             # Frequency Domain
-            all_traces_fft = np.fft.rfft(self.data["light"]["single_traces"], axis=0)
+            all_traces_fft = np.abs(np.fft.rfft(self.data["light"]["single_traces"], axis=0))
             std_light_fft = np.std(all_traces_fft, axis=1)
-            mean_light_fft = np.fft.rfft(np.mean(self.data["light"]["single_traces"], axis=1))
-            peak_snr_fd = np.max(np.abs(mean_light_fft) / std_light_fft)
-            self.data["light"]["statistics"]["peak_SNR_time"] = peak_snr_td
-            self.data["light"]["statistics"]["peak_SNR_freq"] = peak_snr_fd
+            mean_light_fft = np.abs(np.fft.rfft(np.mean(self.data["light"]["single_traces"], axis=1)))
+            peak_snr_fd = np.max(mean_light_fft / std_light_fft)
+            self.data["statistics"]["peak_SNR_time"] = peak_snr_td
+            self.data["statistics"]["peak_SNR_freq"] = peak_snr_fd
         if "dark" in self.data.keys():
             # Dynamic Range (DR)
             # Time Domain
@@ -157,5 +156,6 @@ class PostProcessData:
             mean_dark_fft = np.abs(np.fft.rfft(np.mean(self.data["dark"]["single_traces"], axis=1)))
             std_dark_fft = np.std(np.abs(np.fft.rfft(self.data["dark"]["single_traces"], axis=0)), axis=1)
             peak_dr_fd = np.max((mean_light_fft - mean_dark_fft) / std_dark_fft)
-            self.data["light"]["statistics"]["peak_DR_time"] = peak_dr_td
-            self.data["light"]["statistics"]["peak_DR_freq"] = peak_dr_fd
+            self.data["statistics"]["peak_DR_time"] = peak_dr_td
+            self.data["statistics"]["peak_DR_freq"] = peak_dr_fd
+        return self.data

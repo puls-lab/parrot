@@ -23,7 +23,7 @@ print(f"TIME: Loading files: {EngFormatter('s', places=1)(end - start)}")
 
 start = time.time()
 process_obj = process.process_data.Process()
-data = process_obj.dark_and_thz(light, dark, scale=15e-12 / 20)
+data = process_obj.dark_and_thz(light, dark, scale=15e-12 / 20, debug=True)
 end = time.time()
 print(f"TIME: Processing files: {EngFormatter('s', places=1)(end - start)}")
 
@@ -37,5 +37,8 @@ data = post_obj.super_gaussian(window_width=0.6)
 
 data = post_obj.get_statistics()
 
-# plot_obj = plot.plot.Plot()
+print(data["statistics"])
+
+plot_obj = plot.plot.Plot()
 # plot_obj.plot_full_multi_cycle(data, snr_timedomain=True)
+plot_obj.plot_simple_multi_cycle(data)
