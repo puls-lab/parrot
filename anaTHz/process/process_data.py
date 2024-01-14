@@ -25,14 +25,18 @@ class Process:
             data[mode] = CutData(data[mode]).run()
         return data
 
-    def thz_only(self, light_df):
-        pass
-        # raw_data = {"light": {"time": df.iloc[:, 0],
-        #                      "position": df.iloc[:, 1],
-        #                      "signal": df.iloc[:, 2]}
+    def thz_only(self, light, **kwargs):
+        raw_data = {"light": {"time": light["time"],
+                              "position": light["position"],
+                              "signal": light["signal"]}}
+        data = {"light": PrepareData(raw_data["light"], self.recording_type, **kwargs).run()}
+        CutData(data["light"]).run()
+        return data
 
-    def dark_only(self, dark_df):
-        pass
-        # raw_data = {"dark": {"time": df.iloc[:, 0],
-        #                     "position": df.iloc[:, 1],
-        #                     "signal": df.iloc[:, 2]}
+    def dark_only(self, dark, **kwargs):
+        raw_data = {"light": {"time": dark["time"],
+                              "position": dark["position"],
+                              "signal": dark["signal"]}}
+        data = {"dark": PrepareData(raw_data["dark"], self.recording_type, **kwargs).run()}
+        CutData(data["dark"]).run()
+        return data

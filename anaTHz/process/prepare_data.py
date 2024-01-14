@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.signal import sosfiltfilt, butter, find_peaks
+from scipy.signal import sosfiltfilt, butter, find_peaks, correlate, correlation_lags
 from scipy.optimize import minimize
 # TODO: Remove matplotlib later (but not EngFormatter)
 import matplotlib
@@ -157,7 +157,7 @@ class PrepareData:
         new_time = np.arange(0, len(self.data["position"]) * self.dt, new_dt)
         if self.debug:
             print(
-                f"INFO: Current recording length: {self.dt} time samples. New recording length {new_dt} time samples.")
+                f"INFO: Current time sample: {self.dt}s per sample. New time sample: {new_dt}s per sample.")
         self.data["position"] = np.interp(new_time, current_time, self.data["position"])
         self.data["signal"] = np.interp(new_time, current_time, self.data["signal"])
         self.dt = new_dt
@@ -230,12 +230,21 @@ class PrepareData:
         sig = sig[~np.isnan(sig)]
         pos_list = np.split(pos, self.data["trace_cut_index"])
         sig_list = np.split(sig, self.data["trace_cut_index"])
-        peak_loc = [pos_trace[np.argmax(sig_trace)] for pos_trace, sig_trace in zip(pos_list, sig_list)]
-        # Subtract avg. delay position at signal peak between forward/backward traces
-        diff = np.mean(peak_loc[::2]) - np.mean(peak_loc[1::2])
+
+        sorted_first_signal = sig_list[0][pos_list[0].argsort()]
+        first_trace = sorted_first_signal - np.mean(sorted_first_signal)
+
+        all_lags_squared = 0
+        for pos_trace, sig_trace in zip(pos_list, sig_list):
+            current_trace = sig_trace[pos_trace.argsort()]
+            correlation = correlate(first_trace,
+                                    current_trace - np.mean(current_trace), mode="same")
+            lags = correlation_lags(first_trace.size, current_trace.size, mode="same")
+            lag = lags[np.argmax(correlation)]
+            all_lags_squared += lag ** 2
         if self.debug:
-            print(f"Time sample delay:\t{int(delay)}\tDiff^2:\t{diff ** 2:.1e}")
-        return diff ** 2
+            print(f"Time sample delay:\t{int(delay)}\tError^2:\t{all_lags_squared:.1e}")
+        return all_lags_squared
 
     def shift_position(self, delay_value):
         self.data["signal"] = np.roll(self.data["signal"], delay_value)
