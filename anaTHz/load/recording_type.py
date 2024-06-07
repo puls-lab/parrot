@@ -1,11 +1,13 @@
-from load import Load
-from recording_device import LockInAmplifier, DewesoftDAQ, Oscilloscope, Picoscope
 # Python libraries
 import numpy as np
 import h5py
 import scipy.io as sio
 from scipy.constants import c
 import pickle
+
+# Own libraries
+from .load import Load
+from .recording_device import LockInAmplifier, DewesoftDAQ, Oscilloscope, Picoscope
 
 
 class RecordingType(Load):

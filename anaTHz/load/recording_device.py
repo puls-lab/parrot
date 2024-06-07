@@ -3,6 +3,9 @@ import numpy as np
 from scipy.optimize import minimize
 import matplotlib.pyplot as plt
 
+# Own libraries
+from .load import Load
+
 
 class LockInAmplifier(Load):
     def __init__(self, lockin_delay_ch, lockin_x_ch, lockin_y_ch, history_number=None):

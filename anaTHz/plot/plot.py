@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.ticker import EngFormatter
+from pathlib import Path
 
 
 def calc_fft(time, signal):
@@ -135,7 +136,8 @@ class Plot:
         ax[1].set_xlabel("Frequency")
         ax[1].grid(True)
         if water_absorption_lines:
-            h2o = np.loadtxt("plot/WaterAbsorptionLines.csv", delimiter=",", skiprows=8)
+            script_path = Path(__file__).resolve().parent
+            h2o = np.loadtxt(script_path / "WaterAbsorptionLines.csv", delimiter=",", skiprows=8)
             filter_frequency = (h2o[:, 0] >= self.start_bandwidth) & (h2o[:, 0] <= self.stop_bandwidth)
             # Filter for specified frequency range
             h2o = h2o[filter_frequency, :]
@@ -241,7 +243,8 @@ class Plot:
         ax[1].set_xlabel("Frequency")
         ax[1].grid(True)
         if water_absorption_lines:
-            h2o = np.loadtxt("plot/WaterAbsorptionLines.csv", delimiter=",", skiprows=8)
+            script_path = Path(__file__).resolve().parent
+            h2o = np.loadtxt(script_path / "WaterAbsorptionLines.csv", delimiter=",", skiprows=8)
             filter_frequency = (h2o[:, 0] >= self.start_bandwidth) & (h2o[:, 0] <= self.stop_bandwidth)
             # Filter for specified frequency range
             h2o = h2o[filter_frequency, :]
