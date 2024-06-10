@@ -1,6 +1,6 @@
 from .prepare_data import PrepareData
 from .cut_data import CutData
-from .post_process_data import PostProcessData
+#from .post_process_data import PostProcessData
 
 
 class Process:
@@ -10,7 +10,7 @@ class Process:
         self.recording_type = recording_type
         pass
 
-    def dark_and_thz(self, light, dark, **kwargs):
+    def thz_and_dark(self, light, dark, **kwargs):
         raw_data = {}
         for mode, data in zip(["light", "dark"], [light, dark]):
             raw_data[mode] = {"time": data["time"],
@@ -18,10 +18,32 @@ class Process:
                               "signal": data["signal"]}
         data = {"light": PrepareData(raw_data["light"], self.recording_type, **kwargs).run(),
                 "dark": {}}
-        data["dark"] = PrepareData(raw_data["dark"],
+        if 'delay_value' in kwargs:
+            data["dark"] = PrepareData(raw_data["dark"],
+                                       **kwargs).run()
+        else:
+            data["dark"] = PrepareData(raw_data["dark"],
                                    delay_value=data["light"]["delay_value"],
                                    **kwargs).run()
         for mode in ["light", "dark"]:
+            data[mode] = CutData(data[mode]).run()
+        return data
+
+    def thz_and_two_darks(self, light, dark1, dark2, **kwargs):
+        raw_data = {}
+        for mode, data in zip(["light", "dark"], [light, dark1, dark2]):
+            raw_data[mode] = {"time": data["time"],
+                              "position": data["position"],
+                              "signal": data["signal"]}
+        data = {"light": PrepareData(raw_data["light"], self.recording_type, **kwargs).run(),
+                "dark1": {}}
+        data["dark1"] = PrepareData(raw_data["dark1"],
+                                   delay_value=data["light"]["delay_value"],
+                                   **kwargs).run()
+        data["dark2"] = PrepareData(raw_data["dark2"],
+                                   delay_value=data["light"]["delay_value"],
+                                   **kwargs).run()
+        for mode in ["light", "dark1", "dark2"]:
             data[mode] = CutData(data[mode]).run()
         return data
 
@@ -34,7 +56,7 @@ class Process:
         return data
 
     def dark_only(self, dark, **kwargs):
-        raw_data = {"light": {"time": dark["time"],
+        raw_data = {"dark": {"time": dark["time"],
                               "position": dark["position"],
                               "signal": dark["signal"]}}
         data = {"dark": PrepareData(raw_data["dark"], self.recording_type, **kwargs).run()}

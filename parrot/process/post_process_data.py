@@ -101,7 +101,7 @@ class PostProcessData:
             time = self.data["dark"]["light_time"]
             z = np.polyfit(time, self.data["dark"]["average"]["time_domain"], order)
             p = np.poly1d(z)
-            for mode in ["dark", "light"]:
+            for mode in self.data.keys():
                 self.data[mode]["single_traces"] -= p(self.data[mode]["light_time"]).reshape(-1, 1)
                 self.data[mode]["average"]["time_domain"] -= p(self.data[mode]["light_time"])
             self.applied_functions.append("subtract_polynomial")
