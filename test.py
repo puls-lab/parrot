@@ -73,7 +73,12 @@ def calc_fft(time, signal):
 process_obj = parrot.Process()
 data = process_obj.thz_and_two_darks(light, dark1, dark2, delay_value=-1.526, scale=50e-12 / 20, debug=False)
 post_obj = parrot.PostProcessData(data)
+# data = post_obj.correct_systematic_errors()
 data = post_obj.super_gaussian(window_width=0.6)
+
+# np.savetxt("light_time.csv", data["light"]["light_time"], delimiter=",")
+# np.savetxt("dark_single_traces.csv", data["dark"]["single_traces"], delimiter=",")
+#np.savetxt("light_single_traces.csv", data["light"]["single_traces"], delimiter=",")
 
 fig, ax = plt.subplots(nrows=3, ncols=2, sharex="row", figsize=(22 / 2.54, 20 / 2.54))
 frequency_dark, dark_fft = calc_fft(data["dark1"]["light_time"], data["dark1"]["average"]["time_domain"])
