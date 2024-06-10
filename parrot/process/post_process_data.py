@@ -101,10 +101,39 @@ class PostProcessData:
             time = self.data["dark"]["light_time"]
             z = np.polyfit(time, self.data["dark"]["average"]["time_domain"], order)
             p = np.poly1d(z)
-            for mode in self.data.keys():
+            for mode in ["dark", "light"]:
                 self.data[mode]["single_traces"] -= p(self.data[mode]["light_time"]).reshape(-1, 1)
                 self.data[mode]["average"]["time_domain"] -= p(self.data[mode]["light_time"])
             self.applied_functions.append("subtract_polynomial")
+            return self.data
+
+    def correct_systematic_errors(self):
+        # This only works when two dark traces were recorded with the same settings as with the light trace
+        if "window" in self.applied_functions:
+            raise NotImplementedError("You already applied a window to the data, "
+                                      "you first have to subtract a polynomial and then apply a window.")
+        elif "FFT" in self.applied_functions:
+            raise NotImplementedError("You already applied a FFT to the data, "
+                                      "you first have to subtract a polynomial and do a FFT.")
+        elif "pad_zeros" in self.applied_functions:
+            raise NotImplementedError("You already applied zero-padding to the data, "
+                                      "you first have to subtract a polynomial and then pad_zeros.")
+        elif "dark1" not in self.data.keys() and "dark2" not in self.data.keys():
+            raise NotImplementedError("Two dark traces missing.")
+        else:
+            dark1_avg = self.data["dark1"]["average"]["time_domain"]
+            dark2_avg = self.data["dark2"]["average"]["time_domain"]
+            min_number_traces = np.min(np.array([self.data["dark1"]["single_traces"].shape[1],
+                                                 self.data["dark2"]["single_traces"].shape[1]]))
+            self.data["dark"] = {"average": {}}
+            self.data["dark"]["light_time"] = self.data["dark1"]["light_time"]
+            self.data["dark"]["number_of_traces"] = min_number_traces
+            self.data["dark"]["single_traces"] = (self.data["dark1"]["single_traces"][:, :min_number_traces]
+                                                  - self.data["dark2"]["single_traces"][:, :min_number_traces])
+            self.data["dark"]["average"]["time_domain"] = dark1_avg - dark2_avg
+            self.data["light"]["single_traces"] -= dark1_avg.reshape(-1, 1)
+            self.data["light"]["average"]["time_domain"] -= dark1_avg
+            self.applied_functions.append("correct_systematic_errors")
             return self.data
 
     def get_statistics(self):
