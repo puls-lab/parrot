@@ -12,6 +12,17 @@ from numba import njit
 # TODO: Delete time later
 import time
 
+import logging
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+formatter = logging.Formatter("[%(levelname)s] %(name)s: %(message)s")
+
+stream_handler = logging.StreamHandler()
+stream_handler.setFormatter(formatter)
+logger.addHandler(stream_handler)
+
 
 class PrepareData:
     def __init__(self,
@@ -38,6 +49,8 @@ class PrepareData:
                      "signal": raw_data["signal"]}
         self.recording_type = recording_type
         self.debug = debug
+        if not debug:
+            logger.setLevel(logging.WARNING)
         # Maximum THz frequency, which can be later displayed with interpolated data.
         # Large values mean many interpolation points, this can fill up RAM quickly when data contains 1000s of traces.
         self.max_THz_frequency = max_THz_frequency
@@ -63,6 +76,12 @@ class PrepareData:
                                                        1 / self.dt,
                                                        lowcut=self.lowcut_position,
                                                        highcut=self.highcut_position)
+            if self.lowcut_position is not None and self.highcut_position is None:
+                logger.info(f"Position data is high-pass filtered with {EngFormatter('Hz')(self.lowcut_position)}.")
+            elif self.lowcut_position is None and self.highcut_position is not None:
+                logger.info(f"Position data is low-pass filtered with {EngFormatter('Hz')(self.highcut_position)}.")
+            elif self.lowcut_position is not None and self.highcut_position is not None:
+                logger.info(f"Position data is low- and high-pass filtered with [{EngFormatter('Hz')(self.lowcut_position)}, {EngFormatter('Hz')(self.lowcut_position)}].")
         # Calculate the total record length in THz time, afterward we can select the correct interpolation resolution
         self.data["thz_recording_length"] = self.data["scale"] * (
                 np.max(self.data["position"]) - np.min(self.data["position"]))
@@ -74,6 +93,13 @@ class PrepareData:
                                                      1 / self.dt,
                                                      lowcut=self.lowcut_signal,
                                                      highcut=self.highcut_signal)
+
+            if self.lowcut_signal is not None and self.highcut_signal is None:
+                logger.info(f"Signal data is high-pass filtered with {EngFormatter('Hz')(self.lowcut_signal)}.")
+            elif self.lowcut_signal is None and self.highcut_signal is not None:
+                logger.info(f"Signal data is low-pass filtered with {EngFormatter('Hz')(self.highcut_signal)}.")
+            elif self.lowcut_signal is not None and self.highcut_signal is not None:
+                logger.info(f"Signal data is low- and high-pass filtered with [{EngFormatter('Hz')(self.lowcut_signal)}, {EngFormatter('Hz')(self.highcut_signal)}].")
             self.resample_data()
         if self.recording_type == "single_cycle":
             if np.argmin(self.data["position"]) - np.argmax(self.data["position"]) < 0:
@@ -96,10 +122,10 @@ class PrepareData:
         for exponent in range(6, 20):
             if 0.5 * (2 ** exponent / self.data["thz_recording_length"]) > self.max_THz_frequency:
                 self.data["interpolation_resolution"] = 2 ** exponent
-                if self.debug:
-                    print("INFO: Found interpolation resolution to have more than "
-                          f"{EngFormatter('Hz', places=1)(self.max_THz_frequency)}: 2 ** {exponent} = "
-                          f"{2 ** exponent} points")
+                logger.info(
+                      "Found interpolation resolution to have more than "+
+                      f"{EngFormatter('Hz', places=1)(self.max_THz_frequency)}: 2 ** {exponent} = "+
+                      f"{2 ** exponent} points")
                 break
         if self.data["interpolation_resolution"] is None:
             raise ValueError("Could not find a proper interpolation resolution between 2**6 and 2**20."
@@ -129,6 +155,8 @@ class PrepareData:
                                                          bounds_error=False,
                                                          fill_value=np.nan)
             if self.data["delay_value"] is None:
+                logger.info(
+                    f"No delay_value provided, searching now for optimal delay:")
                 self.data["delay_value"] = self.get_delay()
             self.shift_position(self.data["delay_value"])
             if self.debug:
@@ -165,13 +193,13 @@ class PrepareData:
             "scale"] * self.dt)  # [V/s] * [ps/V] --> scaling factor
         factor = np.int64(np.floor(max_native_frequency / self.max_THz_frequency))
         if factor < 1:
-            factor = 1
+            logger.debug(
+                f"No resampling necessary.")
+            return
         current_time = np.arange(0, len(self.data["position"]) * self.dt, self.dt)
         new_dt = factor * self.dt
         new_time = np.arange(0, len(self.data["position"]) * self.dt, new_dt)
-        if self.debug:
-            print(
-                f"INFO: Current time sample: {EngFormatter('s')(self.dt)} per sample. New time sample: {EngFormatter('s')(new_dt)} per sample.")
+        logger.info(f"Current time sample: {EngFormatter('s')(self.dt)} per sample. New time sample: {EngFormatter('s')(new_dt)} per sample.")
         self.data["position"] = np.interp(new_time, current_time, self.data["position"])
         self.data["signal"] = np.interp(new_time, current_time, self.data["signal"])
         self.dt = new_dt
@@ -192,8 +220,9 @@ class PrepareData:
             freq = np.fft.rfftfreq(len(position), self.dt)
             guess_freq = np.abs(freq[np.argmax(signal_fft[1:]) + 1])
             end = time.time()
-            print(f"INFO: Taking rFFT over complete position array, taking {EngFormatter('s', places=1)(end - start)}."
-                  "If you specify filter_position=True and a reasonable highcut_position (in [Hz]), "
+            logger.info(
+                f"Taking rFFT over complete position array, taking {EngFormatter('s', places=1)(end - start)}."+
+                  "If you specify filter_position=True and a reasonable highcut_position (in [Hz]), "+
                   "you can accelerate this process alot.")
 
         idx, _ = find_peaks(np.abs(position),
@@ -250,11 +279,13 @@ class PrepareData:
             if not self.consider_all_traces and i > 100:
                 break
             i += 1
-        print(f"Delay:\t{delay[0]:.3f}\tError:\t{np.sum(np.nanstd(signal_matrix, axis=1))}")
+        logger.info(f"Delay:\t{delay[0]:.3f}\tError:\t{np.sum(np.nanstd(signal_matrix, axis=1))}")
         return np.sum(np.nanstd(signal_matrix, axis=1))
 
-    def shift_position(self, delay):
-        new_time_axis = delay * self.dt + np.copy(self.original_time)
+    def shift_position(self, delay_value):
+        logger.info(
+            f"Found optimal delay_value {EngFormatter('Sa', places=3)(delay_value)}, corresponding to a time delay of {EngFormatter('s')(delay_value * self.dt)}.")
+        new_time_axis = delay_value * self.dt + np.copy(self.original_time)
         self.data["position"] = self.position_interpolated(new_time_axis)
         self.data["signal"] = self.data["signal"][~np.isnan(self.data["position"])]
         self.data["position"] = self.data["position"][~np.isnan(self.data["position"])]
@@ -269,8 +300,8 @@ class PrepareData:
         """Create coefficients for a butterworth filter."""
         nyq = 0.5 * fs
         if highcut > nyq:
-            print(
-                f"INFO: {EngFormatter('Hz')(highcut)} > Nyquist-frequency ({EngFormatter('Hz')(nyq)}), "
+            logger.info(
+                f"{EngFormatter('Hz')(highcut)} > Nyquist-frequency ({EngFormatter('Hz')(nyq)}), "
                 "ignoring parameter.")
             highcut = None
         if lowcut is not None and highcut is not None:

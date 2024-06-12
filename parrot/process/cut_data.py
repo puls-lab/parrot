@@ -1,5 +1,15 @@
 import numpy as np
 
+import logging
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+formatter = logging.Formatter("[%(levelname)s] %(name)s: %(message)s")
+
+stream_handler = logging.StreamHandler()
+stream_handler.setFormatter(formatter)
+logger.addHandler(stream_handler)
 
 def process_all_traces(matrix, total_position, total_signal, trace_idx, interpolated_delay):
     pos_list = np.split(total_position, trace_idx)
@@ -30,6 +40,8 @@ class CutData:
         self.data = data
         self.data["interpolated_position"] = np.linspace(0, 1, self.data["interpolation_resolution"])
         self.debug = debug
+        if not debug:
+            logger.setLevel(logging.WARNING)
 
     def run(self):
         """Normalize the position signal (i.e. a voltage signal from a shaker) between 0 and 1."""
@@ -37,8 +49,7 @@ class CutData:
                                                                               np.min(self.data["position"]))
         # Create matrix, containing each single, interpolated THz trace
         matrix = np.zeros((self.data["interpolation_resolution"], self.data["number_of_traces"]))
-        if self.debug:
-            print(f"Creating matrix with {matrix.shape}. Starting interpolation for all traces...")
+        logger.info(f"Creating matrix with {matrix.shape}. Starting interpolation for all traces...")
         matrix = process_all_traces(matrix,
                                     position,
                                     self.data["signal"],

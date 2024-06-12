@@ -9,10 +9,10 @@ def calc_fft(time, signal):
     signal_fft = np.fft.rfft(signal)
     return frequency, signal_fft
 
-
 light_time = np.loadtxt("light_time.csv", delimiter=",")
 dark = np.loadtxt("dark_single_traces.csv", delimiter=",")
 light = np.loadtxt("light_single_traces.csv", delimiter=",")
+
 
 # Fig.1
 
@@ -120,6 +120,31 @@ ax.semilogy(frequency, (smooth_gain * np.abs(dark_fft_smooth)) ** 2, color="grey
 ax.semilogy(frequency, (smooth_gain * np.abs(light_fft)) ** 2, color="tab:orange", alpha=0.8,
             label=r"Light, avg. in time domain $\cdot$ smooth gain")
 # ax.semilogy(frequency, (smooth_gain * np.abs(light_fft_smooth))**2, color="tab:blue", alpha=0.8, label="Light, absolute average in freq domain")
+
+ax.grid(True)
+ax.set_xlabel("Frequency")
+ax.set_ylabel("Power spectrum |V²|")
+ax.xaxis.set_major_formatter(EngFormatter("Hz"))
+ax.legend(loc="upper right")
+plt.tight_layout()
+
+# Fig. 4b)
+
+fig4, axs4 = plt.subplots(figsize=(26 / 2.54, 12 / 2.54))
+ax = axs4
+
+smooth_gain = np.max(dark_fft_smooth) / dark_fft_smooth
+
+dark_fft_smooth_complex =  np.mean(dark_fft_single_traces.T.real, axis=1) + np.mean(dark_fft_single_traces.T.imag, axis=1)
+
+ax.semilogy(frequency, np.abs(dark_fft / dark_fft_smooth_complex) ** 2, color="black", alpha=0.8,
+            label=r"Dark, avg. in time domain / smooth gain")
+ax.semilogy(frequency, np.abs(dark_fft_smooth / dark_fft_smooth_complex) ** 2, color="grey", alpha=0.8,
+            label=r"Dark, abs. avg. in freq domain / smooth gain")
+
+ax.semilogy(frequency, np.abs(light_fft / dark_fft_smooth_complex) ** 2, color="tab:orange", alpha=0.8,
+            label=r"Light, avg. in time domain / smooth gain")
+ax.semilogy(frequency, np.abs(light_fft_smooth / dark_fft_smooth_complex)**2, color="tab:blue", alpha=0.8, label="Light, abs. avg. in freq domain / smooth gain")
 
 ax.grid(True)
 ax.set_xlabel("Frequency")

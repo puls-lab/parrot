@@ -3,6 +3,16 @@ from scipy.signal.windows import flattop
 from matplotlib.ticker import EngFormatter
 import copy
 
+import logging
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+formatter = logging.Formatter("[%(levelname)s] %(name)s: %(message)s")
+
+stream_handler = logging.StreamHandler()
+stream_handler.setFormatter(formatter)
+logger.addHandler(stream_handler)
 
 class PostProcessData:
     def __init__(self, data, debug=True):
@@ -10,6 +20,10 @@ class PostProcessData:
         self.applied_functions = []
         self.debug = debug
         # TODO: FFT, Cutting, Windowing, Zero-padding
+
+        self.debug = debug
+        if not debug:
+            logger.setLevel(logging.WARNING)
 
     def super_gaussian(self, window_width=0.8, window_shift=0, window_order=10):
         for mode in self.data.keys():
@@ -36,7 +50,8 @@ class PostProcessData:
 
     def calc_fft(self):
         if "window" not in self.applied_functions:
-            print("INFO: You are taking the FFT without windowing the data, which could create artifacts "
+            logger.warning(
+                  "You are taking the FFT without windowing the data, which could create artifacts "
                   "in frequency domain. It is strongly recommended to first window the data.")
         for mode in self.data.keys():
             time = self.data[mode]["light_time"]
@@ -45,7 +60,7 @@ class PostProcessData:
             self.data[mode]["average"]["frequency_domain"] = np.fft.rfft(self.data[mode]["average"]["time_domain"])
         return self.data
 
-    def pad_zeros(self, new_frequency_resolution=5e9):
+    def pad_zeros(self, new_frequency_resolution=5e9, min_test_exponent=6, max_test_exponent=21):
         if "window" in self.applied_functions:
             if "light" in self.data.keys():
                 raise NotImplementedError("Light data missing. You can only pad zeros to light data.")
@@ -58,16 +73,16 @@ class PostProcessData:
                 new_td_length = 1 / new_frequency_resolution
                 max_THz_frequency = len(current_time) / current_td_length
                 new_interpolation_resolution = None
-                for exponent in range(6, 21):
+                for exponent in range(min_test_exponent, max_test_exponent):
                     if 0.5 * (2 ** exponent / new_td_length) > max_THz_frequency:
                         new_interpolation_resolution = 2 ** exponent
-                        if self.debug:
-                            print("INFO: Found interpolation resolution to have more than "
+                        logger.info("Found interpolation resolution to have more than "
                                   f"{EngFormatter('Hz', places=1)(max_THz_frequency)}: 2 ** {exponent} = "
                                   f"{2 ** exponent} points")
                         break
                 if new_interpolation_resolution is None:
-                    raise ValueError("Could not find a proper interpolation resolution between 2**6 and 2**21."
+                    raise ValueError(f"Could not find a proper interpolation resolution between 2**{min_test_exponent} "+
+                                     f"and 2**{max_test_exponent}."
                                      "Is your new frequency resolution too low?")
                 self.data["light"]["interpolation_resolution"] = new_interpolation_resolution
                 padded_array = np.zeros(self.data["light"]["interpolation_resolution"])
