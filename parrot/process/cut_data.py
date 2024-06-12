@@ -3,13 +3,14 @@ import numpy as np
 import logging
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.handlers.clear()
 
 formatter = logging.Formatter("[%(levelname)s] %(name)s: %(message)s")
 
 stream_handler = logging.StreamHandler()
 stream_handler.setFormatter(formatter)
 logger.addHandler(stream_handler)
+logger.setLevel(logging.INFO)
 
 def process_all_traces(matrix, total_position, total_signal, trace_idx, interpolated_delay):
     pos_list = np.split(total_position, trace_idx)
