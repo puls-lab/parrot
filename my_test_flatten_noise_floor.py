@@ -32,7 +32,7 @@ with h5py.File(
 
 
 process_obj = parrot.Process()
-data1 = process_obj.dark_only(dark1, scale=50e-12 / 20, delay_value=-1.526, debug=True)
+data1 = process_obj.dark_only(dark1, scale=50e-12 / 20, delay_value=-1.526, debug=False)
 
 post_obj = parrot.PostProcessData(data1)
 #data1 = post_obj.calc_fft()
