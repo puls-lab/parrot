@@ -182,12 +182,23 @@ class PostProcessData:
             std_of_peak = np.std(self.data["light"]["single_traces"][index, :])
             peak_snr_td = np.max(mean_light) / std_of_peak
             # Frequency Domain
+            dt = (self.data["light"]["light_time"][-1] - self.data["light"]["light_time"][0]) / (
+                        len(self.data["light"]["light_time"]) - 1)
+            frequency = np.fft.rfftfreq(len(self.data["light"]["light_time"]), dt)
             all_traces_fft = np.abs(np.fft.rfft(self.data["light"]["single_traces"], axis=0))
             std_light_fft = np.std(all_traces_fft, axis=1)
             mean_light_fft = np.abs(np.fft.rfft(np.mean(self.data["light"]["single_traces"], axis=1)))
             peak_snr_fd = np.max(mean_light_fft / std_light_fft)
+            # Calculate FWHM in frequency domain
+            condition = (mean_light_fft / np.max(mean_light_fft)) > 0.5
+            for start, stop in self.contiguous_regions(condition):
+                segment = frequency[start:stop]
+                print(f"{start}, {stop}")
+                print(f"{segment.min()}, {segment.max()}")
+
             self.data["statistics"]["peak_SNR_time"] = peak_snr_td
             self.data["statistics"]["peak_SNR_freq"] = peak_snr_fd
+
         if "dark" in self.data.keys():
             # Dynamic Range (DR)
             # Time Domain
@@ -204,3 +215,32 @@ class PostProcessData:
             self.data["statistics"]["peak_DR_time"] = peak_dr_td
             self.data["statistics"]["peak_DR_freq"] = peak_dr_fd
         return self.data
+
+    def contiguous_regions(self, condition):
+        """Finds contiguous True regions of the boolean array "condition". Returns
+        a 2D array where the first column is the start index of the region and the
+        second column is the end index.
+
+        Authors: Joe Kington & David Parks
+        Source:  https://stackoverflow.com/a/4495197/8599759
+        """
+
+        # Find the indicies of changes in "condition"
+        d = np.diff(condition)
+        idx, = d.nonzero()
+
+        # We need to start things after the change in "condition". Therefore,
+        # we'll shift the index by 1 to the right.
+        idx += 1
+
+        if condition[0]:
+            # If the start of condition is True prepend a 0
+            idx = np.r_[0, idx]
+
+        if condition[-1]:
+            # If the end of condition is True, append the length of the array
+            idx = np.r_[idx, condition.size]  # Edit
+
+        # Reshape the result into two columns
+        idx.shape = (-1, 2)
+        return idx
