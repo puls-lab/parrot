@@ -153,6 +153,25 @@ ax.xaxis.set_major_formatter(EngFormatter("Hz"))
 ax.legend(loc="upper right")
 plt.tight_layout()
 
+# Fig. 4c)
+
+fig4, axs4 = plt.subplots(figsize=(26 / 2.54, 12 / 2.54))
+ax = axs4
+
+ax.semilogy(frequency, np.abs(dark_fft / dark_fft) ** 2, color="black", alpha=0.8,
+            label=r"Dark / Dark")
+
+ax.semilogy(frequency, np.abs(light_fft) ** 2, color="tab:orange", alpha=0.8,
+            label=r"Light")
+ax.semilogy(frequency, np.abs(light_fft / dark_fft)**2, color="tab:blue", alpha=0.8, label="Light / Dark")
+
+ax.grid(True)
+ax.set_xlabel("Frequency")
+ax.set_ylabel("Power spectrum |V²|")
+ax.xaxis.set_major_formatter(EngFormatter("Hz"))
+ax.legend(loc="upper right")
+plt.tight_layout()
+
 # Fig. 5
 
 fig5, axs5 = plt.subplots(nrows=1, ncols=2, figsize=(26 / 2.54, 12 / 2.54))
