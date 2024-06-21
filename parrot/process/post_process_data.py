@@ -191,11 +191,17 @@ class PostProcessData:
             peak_snr_fd = np.max(mean_light_fft / std_light_fft)
             # Calculate FWHM in frequency domain
             condition = (mean_light_fft / np.max(mean_light_fft)) > 0.5
+            range_idx = 0
             for start, stop in self.contiguous_regions(condition):
-                segment = frequency[start:stop]
-                print(f"{start}, {stop}")
-                print(f"{segment.min()}, {segment.max()}")
-
+                logger.info("Found segment above 0.5 (rel. amplitude), from \n" +
+                            f"{EngFormatter('Hz')(frequency[start])} to {EngFormatter('Hz')(frequency[stop])} = {EngFormatter('Hz')(frequency[stop - 1] - frequency[start])}")
+                if stop - start > range_idx:
+                    range_idx = stop - start
+                    self.data["statistics"]["fwhm_start"] = frequency[start]
+                    self.data["statistics"]["fwhm_stop"] = frequency[stop - 1]
+                    self.data["statistics"]["fwhm"] = frequency[stop - 1] - frequency[start]
+            if range_idx == 0:
+                logger.warning("Could not find Full-Width at Half-Maximum (FWHM).")
             self.data["statistics"]["peak_SNR_time"] = peak_snr_td
             self.data["statistics"]["peak_SNR_freq"] = peak_snr_fd
 

@@ -171,8 +171,9 @@ class Plot:
     def plot_simple_multi_cycle(self, data, figsize=None, snr_timedomain=True, water_absorption_lines=True):
         if figsize is None:
             figsize = (12, 8)
-        fig, ax = plt.subplots(nrows=1, ncols=2, figsize=figsize)
+        fig, axs = plt.subplots(nrows=2, ncols=2, figsize=figsize)
         fig_title = ""
+        ax = axs[0, 0]
         # First subplot, time domain
         for mode in data.keys():
             if mode == "light":
@@ -183,20 +184,21 @@ class Plot:
                 color = "black"
             else:
                 continue
-            ax[0].plot(data[mode]["light_time"],
+            ax.plot(data[mode]["light_time"],
                        data[mode]["average"]["time_domain"],
                        color=color,
                        alpha=0.8,
                        label=f"Average of {data[mode]['number_of_traces']} {label_text} traces")
-        ax[0].grid(True)
+        ax.grid(True)
         # If the data got artificially extended with zeros in timedomain,
         # we want to limit the x-axis in timedomain to just zoom on the data.
         # The data is not cut off, you can still pan the axis window,
         # but it is outside the selected range just zero.
         data_start = data["light"]["average"]["time_domain"].nonzero()[0][0]
         data_stop = data["light"]["average"]["time_domain"].nonzero()[0][-1]
-        ax[0].set_xlim([data["light"]["light_time"][data_start], data["light"]["light_time"][data_stop]])
+        ax.set_xlim([data["light"]["light_time"][data_start], data["light"]["light_time"][data_stop]])
         if snr_timedomain:
+            ax = axs[1, 0]
             # Filter all zeros in array (from windowing, extra padding, etc.) since we cannot divide by 0
             std_traces = np.std(data["light"]["single_traces"], axis=1)
             filter_zeros = (std_traces == 0)
@@ -205,43 +207,67 @@ class Plot:
                                            std_traces[~filter_zeros])
 
             fig_title += r"$\mathrm{SNR}_{\mathrm{max}}$" + f" (timedomain): {int(snr_timedomain_max)}"
-        ax[0].legend(loc='upper right')
-        ax[0].xaxis.set_major_formatter(EngFormatter(unit='s'))
-        ax[0].set_xlabel("Time")
-        ax[0].yaxis.set_major_formatter(EngFormatter(unit='V'))
+        ax.legend(loc='upper right')
+        ax.xaxis.set_major_formatter(EngFormatter(unit='s'))
+        ax.set_xlabel("Time")
+        ax.yaxis.set_major_formatter(EngFormatter(unit='V'))
 
+        ax = axs[0, 1]
         # Second subplot, frequency-domain
         self.extract_bandwidth(data)
         # Prepare data, for an accumulated mean fo all single-traces calculate the FFT and dynamic range
         frequency_dark, dark_fft = calc_fft(data["dark"]["light_time"], data["dark"]["average"]["time_domain"])
         frequency_light, light_fft = calc_fft(data["light"]["light_time"], data["light"]["average"]["time_domain"])
-        filter_frequency = (frequency_dark >= self.start_bandwidth) & (frequency_dark <= self.stop_bandwidth)
-        dark_norm = np.mean(np.abs(dark_fft[filter_frequency]) ** 2)
+        filter_frequency_dark = (frequency_dark >= self.start_bandwidth) & (frequency_dark <= self.stop_bandwidth)
+        dark_norm = np.mean(np.abs(dark_fft[filter_frequency_dark]) ** 2)
         filter_frequency = (frequency_dark >= self.min_THz_frequency) & (frequency_dark <= self.max_THz_frequency)
-        ax[1].plot(frequency_dark[filter_frequency],
-                   10 * np.log10(np.abs(dark_fft[filter_frequency]) ** 2 / dark_norm),
-                   color="black",
-                   alpha=0.8,
-                   label=f"{data['dark']['number_of_traces']} dark traces averaged")
-        ax[1].axvline(self.start_bandwidth,
+        frequency, signal_fft = frequency_light[filter_frequency], light_fft[filter_frequency]
+        amplitude_normed = np.abs(signal_fft) - np.mean(np.abs(dark_fft[filter_frequency_dark]))
+        amplitude_normed /= np.max(amplitude_normed)
+        ax.plot(frequency, amplitude_normed,
+                color="tab:orange",
+                alpha=0.8,
+                label=f"{data['light']['number_of_traces']} averaged THz traces")
+        ax.annotate(text='',
+                    xy=(data["statistics"]["fwhm_start"], 0.5),
+                    xytext=(data["statistics"]["fwhm_stop"], 0.5),
+                    arrowprops=dict(arrowstyle='<->', shrinkA=0, shrinkB=0))
+        # center_position = (data["statistics"]["fwhm_stop"] - data["statistics"]["fwhm_start"]) / 2
+        # center_position += data["statistics"]["fwhm_start"]
+        # ax.text(center_position, 0.6, f'FWHM\n{EngFormatter("Hz",places=1)(data["statistics"]["fwhm"])}')
+        # TODO: Make double arrow symbol in legend more visible
+        ax.scatter([], [], color="black", marker=r"$\leftrightarrow$", s=20,
+                   label=f'FWHM = {EngFormatter("Hz", places=1)(data["statistics"]["fwhm"])}')
+        ax.xaxis.set_major_formatter(EngFormatter(unit='Hz'))
+        ax.set_ylabel("Amplitude (linear & norm.)")
+        ax.set_xlabel("Frequency")
+        ax.grid(True)
+        ax.legend()
+
+        ax = axs[1, 1]
+        ax.plot(frequency_dark[filter_frequency],
+                10 * np.log10(np.abs(dark_fft[filter_frequency]) ** 2 / dark_norm),
+                color="black",
+                alpha=0.8,
+                label=f"{data['dark']['number_of_traces']} dark traces averaged")
+        ax.axvline(self.start_bandwidth,
                       linestyle="--",
                       color="black",
                       alpha=0.5)
-        ax[1].axvline(self.stop_bandwidth,
+        ax.axvline(self.stop_bandwidth,
                       linestyle="--",
                       color="black",
                       alpha=0.5,
                       label=f"Bandwidth: {EngFormatter('Hz', places=1)(self.bandwidth)}")
-        filter_frequency = (frequency_light >= self.min_THz_frequency) & (frequency_light <= self.max_THz_frequency)
-        frequency, signal_fft = frequency_light[filter_frequency], light_fft[filter_frequency]
-        ax[1].plot(frequency, 10 * np.log10(np.abs(signal_fft) ** 2 / dark_norm),
+
+        ax.plot(frequency, 10 * np.log10(np.abs(signal_fft) ** 2 / dark_norm),
                    color="tab:orange",
                    alpha=0.8,
                    label=f"{data['light']['number_of_traces']} averaged THz traces")
-        ax[1].xaxis.set_major_formatter(EngFormatter(unit='Hz'))
-        ax[1].set_ylabel(r"Power spectrum [dB]")
-        ax[1].set_xlabel("Frequency")
-        ax[1].grid(True)
+        ax.xaxis.set_major_formatter(EngFormatter(unit='Hz'))
+        ax.set_ylabel(r"Power spectrum [dB]")
+        ax.set_xlabel("Frequency")
+        ax.grid(True)
         if water_absorption_lines:
             script_path = Path(__file__).resolve().parent
             h2o = np.loadtxt(script_path / "WaterAbsorptionLines.csv", delimiter=",", skiprows=8)
@@ -250,11 +276,11 @@ class Plot:
             h2o = h2o[filter_frequency, :]
             alpha_values = np.linspace(0.4, 0.05, len(h2o) - 1)
             h2o_sorted_freq = h2o[np.argsort(h2o[:, 2]), 0]
-            ax[1].axvline(h2o_sorted_freq[0], linewidth=1, color='tab:blue', alpha=0.5, label=r"$H_{2}O$ absorption "
+            ax.axvline(h2o_sorted_freq[0], linewidth=1, color='tab:blue', alpha=0.5, label=r"$H_{2}O$ absorption "
                                                                                               "lines")
-            [ax[1].axvline(_x, linewidth=1, color='tab:blue', alpha=alpha_values[i]) for i, _x in
+            [ax.axvline(_x, linewidth=1, color='tab:blue', alpha=alpha_values[i]) for i, _x in
              enumerate(h2o_sorted_freq[1:])]
-        ax[1].legend(loc="upper right")
+        ax.legend(loc="upper right")
 
         filter_dark = (frequency_dark >= self.start_bandwidth) & (frequency_dark <= self.stop_bandwidth)
         filter_light = (frequency_light >= self.start_bandwidth) & (frequency_light <= self.stop_bandwidth)

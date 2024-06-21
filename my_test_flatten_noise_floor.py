@@ -55,6 +55,8 @@ data3["light"]["single_traces"] -= data3["dark"]["average"]['time_domain'].resha
 #data3 = post_obj.subtract_polynomial(order=4)
 data3 = post_obj.super_gaussian(window_width=0.6)
 post_obj.get_statistics()
+plot_obj = parrot.Plot()
+plot_obj.plot_simple_multi_cycle(data3)
 
 # _ = post_obj.pad_zeros(new_frequency_resolution=25e9)
 # data = post_obj.calc_fft()
