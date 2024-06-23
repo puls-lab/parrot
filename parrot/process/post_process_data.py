@@ -15,6 +15,37 @@ stream_handler.setFormatter(formatter)
 logger.addHandler(stream_handler)
 logger.setLevel(logging.INFO)
 
+
+def contiguous_regions(condition):
+    """Finds contiguous True regions of the boolean array "condition". Returns
+    a 2D array where the first column is the start index of the region and the
+    second column is the end index.
+
+    Authors: Joe Kington & David Parks
+    Source:  https://stackoverflow.com/a/4495197/8599759
+    """
+
+    # Find the indicies of changes in "condition"
+    d = np.diff(condition)
+    idx, = d.nonzero()
+
+    # We need to start things after the change in "condition". Therefore,
+    # we'll shift the index by 1 to the right.
+    idx += 1
+
+    if condition[0]:
+        # If the start of condition is True prepend a 0
+        idx = np.r_[0, idx]
+
+    if condition[-1]:
+        # If the end of condition is True, append the length of the array
+        idx = np.r_[idx, condition.size]  # Edit
+
+    # Reshape the result into two columns
+    idx.shape = (-1, 2)
+    return idx
+
+
 class PostProcessData:
     def __init__(self, data, debug=True):
         self.data = copy.deepcopy(data)
@@ -127,13 +158,13 @@ class PostProcessData:
         # This only works when two dark traces were recorded with the same settings as with the light trace
         if "window" in self.applied_functions:
             raise NotImplementedError("You already applied a window to the data, "
-                                      "you first have to subtract a polynomial and then apply a window.")
+                                      "you first have to correct for systematic errors and then apply a window.")
         elif "FFT" in self.applied_functions:
             raise NotImplementedError("You already applied a FFT to the data, "
-                                      "you first have to subtract a polynomial and do a FFT.")
+                                      "you first have to correct for systematic errors and then do a FFT.")
         elif "pad_zeros" in self.applied_functions:
             raise NotImplementedError("You already applied zero-padding to the data, "
-                                      "you first have to subtract a polynomial and then pad_zeros.")
+                                      "you first have to correct for systematic errors and then pad zeros.")
         elif "dark1" not in self.data.keys() and "dark2" not in self.data.keys():
             raise NotImplementedError("Two dark traces missing.")
         else:
@@ -151,6 +182,43 @@ class PostProcessData:
             self.data["light"]["average"]["time_domain"] -= dark1_avg
             self.applied_functions.append("correct_systematic_errors")
             return self.data
+
+    def correct_gain_in_spectrum(self):
+        logger.warning(
+            "This is an experimental feature!"
+            "It should only affect the magnitude but not the phase. If you do spectroscopic experiments, please test by yourself."
+            "The noise floor of the THz traces are flattened by creating a gain function based on RMS averaging of the single dark traces.")
+        if "dark" not in self.data.keys():
+            if "dark1" not in self.data.keys() and "dark2" not in self.data.keys():
+                raise NotImplementedError("You submitted two dark traces. "
+                                          "First, execute correct_systematic_errors() to generate a single, "
+                                          "compensated dark trace. Afterwards, execute correct_gain_in_spectrum()")
+            else:
+                raise NotImplementedError(
+                    "Dark traces is missing. To correct the gain in frequency domain, a dark trace is missing.")
+        # Take FFT of each single dark trace without averaging them first
+        dark_fft_single_traces = np.fft.rfft(self.data["dark"]["single_traces"], axis=0).T
+        # RMS averaging of each single FFT dark trace
+        smooth_gain = 1 / np.mean(np.abs(dark_fft_single_traces.T), axis=1)
+        # Scale smooth_gain as such, that the noise floor is shifted to 1.
+        factor = 1 / np.mean(np.abs(self.data["dark"]["average"]["frequency_domain"]) * smooth_gain)
+        # Numpy throws an error when using *= notation, since we multiply float64 with complex128 dtypes.
+        smooth_gain = smooth_gain * factor
+        for mode in self.data.keys():
+            self.data[mode]["average"]["frequency_domain"] = self.data[mode]["average"][
+                                                                 "frequency_domain"] * smooth_gain
+            # We have to permeate the changes also to the time domain, so that the data between freq domain and time
+            # domain are consistent with each other
+            self.data[mode]["average"]["time_domain"] = np.fft.irfft(self.data[mode]["average"]["frequency_domain"],
+                                                                     n=len(self.data[mode]["average"]["time_domain"]))
+            # Not only the averaged traces, but also the single traces are affected by the flattening of the noise
+            # floor.
+            single_traces = np.fft.rfft(self.data[mode]["single_traces"], axis=0).T
+            single_traces = single_traces * smooth_gain
+            self.data[mode]["single_traces"] = np.fft.irfft(single_traces.T, axis=0,
+                                                            n=len(self.data[mode]["average"]["time_domain"])).T
+        self.applied_functions.append("correct_gain_in_spectrum")
+        return self.data
 
     def get_statistics(self):
         """
@@ -192,7 +260,7 @@ class PostProcessData:
             # Calculate FWHM in frequency domain
             condition = (mean_light_fft / np.max(mean_light_fft)) > 0.5
             range_idx = 0
-            for start, stop in self.contiguous_regions(condition):
+            for start, stop in contiguous_regions(condition):
                 logger.info("Found segment above 0.5 (rel. amplitude), from \n" +
                             f"{EngFormatter('Hz')(frequency[start])} to {EngFormatter('Hz')(frequency[stop])} = {EngFormatter('Hz')(frequency[stop - 1] - frequency[start])}")
                 if stop - start > range_idx:
@@ -221,32 +289,3 @@ class PostProcessData:
             self.data["statistics"]["peak_DR_time"] = peak_dr_td
             self.data["statistics"]["peak_DR_freq"] = peak_dr_fd
         return self.data
-
-    def contiguous_regions(self, condition):
-        """Finds contiguous True regions of the boolean array "condition". Returns
-        a 2D array where the first column is the start index of the region and the
-        second column is the end index.
-
-        Authors: Joe Kington & David Parks
-        Source:  https://stackoverflow.com/a/4495197/8599759
-        """
-
-        # Find the indicies of changes in "condition"
-        d = np.diff(condition)
-        idx, = d.nonzero()
-
-        # We need to start things after the change in "condition". Therefore,
-        # we'll shift the index by 1 to the right.
-        idx += 1
-
-        if condition[0]:
-            # If the start of condition is True prepend a 0
-            idx = np.r_[0, idx]
-
-        if condition[-1]:
-            # If the end of condition is True, append the length of the array
-            idx = np.r_[idx, condition.size]  # Edit
-
-        # Reshape the result into two columns
-        idx.shape = (-1, 2)
-        return idx

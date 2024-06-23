@@ -128,6 +128,36 @@ ax.xaxis.set_major_formatter(EngFormatter("Hz"))
 ax.legend(loc="upper right")
 plt.tight_layout()
 
+fig, axs = plt.subplots(nrows=2, ncols=1, figsize=(26 / 2.54, 12 / 2.54))
+ax = axs[0]
+smooth_gain = np.max(dark_fft_smooth) / dark_fft_smooth
+ax.semilogy(frequency, np.abs(dark_fft) ** 2, color="black", alpha=0.8, label="Dark, average in time domain")
+ax.semilogy(frequency, np.abs(light_fft) ** 2 / np.max(np.abs(light_fft) ** 2), color="tab:orange", alpha=0.8,
+            label="Light, average in time domain")
+ax.semilogy(frequency, (smooth_gain * np.abs(dark_fft)) ** 2, color="black", alpha=0.8,
+            label=r"Dark, avg. in time domain $\cdot$ smooth gain")
+ax.semilogy(frequency, (smooth_gain * np.abs(light_fft)) ** 2 / np.max((smooth_gain * np.abs(light_fft)) ** 2),
+            color="tab:orange", alpha=0.8,
+            label=r"Light, avg. in time domain $\cdot$ smooth gain")
+ax.grid(True)
+ax.set_xlabel("Frequency")
+ax.set_ylabel("Power spectrum |V²|")
+ax.xaxis.set_major_formatter(EngFormatter("Hz"))
+ax.legend(loc="upper right")
+
+ax = axs[1]
+ax.plot(np.unwrap(np.angle(light_fft / (smooth_gain * light_fft))), label="2nd deriv. Phase, Original data")
+# ax.plot(np.diff(np.unwrap(np.angle()), 2), label="2nd deriv. Phase, Corrected data")
+
+ax.grid(True)
+ax.set_xlabel("Frequency")
+ax.set_ylabel("Phase")
+ax.xaxis.set_major_formatter(EngFormatter("Hz"))
+ax.legend(loc="upper right")
+plt.tight_layout()
+plt.show()
+
+
 # Fig. 4b)
 
 fig4, axs4 = plt.subplots(figsize=(26 / 2.54, 12 / 2.54))

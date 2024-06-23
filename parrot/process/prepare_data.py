@@ -193,8 +193,7 @@ class PrepareData:
             "scale"] * self.dt)  # [V/s] * [ps/V] --> scaling factor
         factor = np.int64(np.floor(max_native_frequency / self.max_THz_frequency))
         if factor < 1:
-            logger.debug(
-                f"No resampling necessary.")
+            logger.debug(f"No resampling necessary.")
             return
         current_time = np.arange(0, len(self.data["position"]) * self.dt, self.dt)
         new_dt = factor * self.dt

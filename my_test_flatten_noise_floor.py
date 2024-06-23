@@ -9,19 +9,19 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import EngFormatter
 
 load_obj = parrot.Load(
-    file_name=r"C:\Users\Tim\PycharmProjects\anaTHzv2\parrot\example_data\2024-05-29_Dark_LN_Cryo_60s_40kHz_80K_-19.7mm_1,.h5",
+    file_name=r"C:\Users\Tim\PycharmProjects\parrot\parrot\example_data\2024-05-29_Dark_LN_Cryo_60s_40kHz_80K_-19.7mm_1,.h5",
     recording_device="DewesoftDAQ",
     recording_type="multi_cycle")
 dark1 = load_obj.run()
 
 load_obj = parrot.Load(
-    file_name=r"C:\Users\Tim\PycharmProjects\anaTHzv2\parrot\example_data\2024-05-29_Dark2_LN_Cryo_60s_40kHz_80K_-19.7mm_1,.h5",
+    file_name=r"C:\Users\Tim\PycharmProjects\parrot\parrot\example_data\2024-05-29_Dark2_LN_Cryo_60s_40kHz_80K_-19.7mm_1,.h5",
     recording_device="DewesoftDAQ",
     recording_type="multi_cycle")
 dark2 = load_obj.run()
 
 with h5py.File(
-        r"C:\Users\Tim\PycharmProjects\anaTHzv2\parrot\example_data\Formatted_2024-05-29_Cd3As2_reprate_40.0kHz_power_30.0mW_pos_-94.00mm_120.00mm.h5",
+        r"C:\Users\Tim\PycharmProjects\parrot\parrot\example_data\Formatted_2024-05-29_Cd3As2_reprate_40.0kHz_power_30.0mW_pos_-94.00mm_120.00mm.h5",
         'r') as f:
     key_1 = list(f.keys())
 
@@ -48,16 +48,19 @@ data1["dark"]["single_traces"] -= data2["dark"]["average"]['time_domain'].reshap
 data1 = post_obj.super_gaussian(window_width=0.6)
 
 process_obj = parrot.Process()
-data3 = process_obj.thz_and_dark(light, dark1, scale=50e-12 / 20, delay_value=-1.526, debug=False)
+data3 = process_obj.thz_and_two_darks(light, dark1, dark2, scale=50e-12 / 20, delay_value=-1.526, debug=False)
 
 post_obj = parrot.PostProcessData(data3)
-data3["light"]["single_traces"] -= data3["dark"]["average"]['time_domain'].reshape(-1,1)
+# data3["light"]["single_traces"] -= data3["dark"]["average"]['time_domain'].reshape(-1,1)
 #data3 = post_obj.subtract_polynomial(order=4)
+data3 = post_obj.correct_systematic_errors()
 data3 = post_obj.super_gaussian(window_width=0.6)
+data3 = post_obj.calc_fft()
+#data3 = post_obj.correct_gain_in_spectrum()
 post_obj.get_statistics()
 plot_obj = parrot.Plot()
 plot_obj.plot_simple_multi_cycle(data3)
-
+plt.show()
 # _ = post_obj.pad_zeros(new_frequency_resolution=25e9)
 # data = post_obj.calc_fft()
 # print(data.keys())
