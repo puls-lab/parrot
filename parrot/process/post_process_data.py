@@ -132,6 +132,22 @@ class PostProcessData:
             raise NotImplementedError("You need to first window the data before padding zeros.")
         return self.data
 
+    def cut_data(self, time_start=None, time_stop=None):
+        if time_start is None and time_stop is None:
+            raise NotImplementedError("You need to supply either a start time, a stop time or both.")
+        time = self.data["dark"]["light_time"]
+        if time_start is None:
+            time_start = np.min(time)
+        if time_stop is None:
+            time_stop = np.max(time)
+        start_idx = np.where(time >= time_start)[0][0]
+        stop_idx = np.where(time >= time_stop)[0][0]
+        for mode in self.data.keys():
+            self.data[mode]["single_traces"] = self.data[mode]["single_traces"][start_idx:stop_idx, :]
+            self.data[mode]["average"]["time_domain"] = self.data[mode]["average"]["time_domain"][start_idx:stop_idx]
+            self.data[mode]["light_time"] = self.data[mode]["light_time"][start_idx:stop_idx]
+        return self.data
+
     def subtract_polynomial(self, order=2):
         if "window" in self.applied_functions:
             raise NotImplementedError("You already applied a window to the data, "

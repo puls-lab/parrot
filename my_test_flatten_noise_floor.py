@@ -14,11 +14,23 @@ load_obj = parrot.Load(
     recording_type="multi_cycle")
 dark1 = load_obj.run()
 
+with h5py.File(r'C:\Users\Tim\PycharmProjects\parrot\parrot\example_data\dark1.h5', 'x') as f:
+    # Save the raw data (numpy arrays) in datasets. Pay attention to the datatype (dtype)
+    f.create_dataset("time", data=dark1["time"])
+    f.create_dataset("position", data=dark1["position"])
+    f.create_dataset("signal", data=dark1["signal"])
+
 load_obj = parrot.Load(
     file_name=r"C:\Users\Tim\PycharmProjects\parrot\parrot\example_data\2024-05-29_Dark2_LN_Cryo_60s_40kHz_80K_-19.7mm_1,.h5",
     recording_device="DewesoftDAQ",
     recording_type="multi_cycle")
 dark2 = load_obj.run()
+
+with h5py.File(r'C:\Users\Tim\PycharmProjects\parrot\parrot\example_data\dark2.h5', 'x') as f:
+    # Save the raw data (numpy arrays) in datasets. Pay attention to the datatype (dtype)
+    f.create_dataset("time", data=dark2["time"])
+    f.create_dataset("position", data=dark2["position"])
+    f.create_dataset("signal", data=dark2["signal"])
 
 with h5py.File(
         r"C:\Users\Tim\PycharmProjects\parrot\parrot\example_data\Formatted_2024-05-29_Cd3As2_reprate_40.0kHz_power_30.0mW_pos_-94.00mm_120.00mm.h5",
@@ -30,6 +42,11 @@ with h5py.File(
     signal = f[f"{key_1[0]}/signal"][:]
     light = {"time": time, "position": delay, "signal": signal}
 
+with h5py.File(r'C:\Users\Tim\PycharmProjects\parrot\parrot\example_data\light.h5', 'x') as f:
+    # Save the raw data (numpy arrays) in datasets. Pay attention to the datatype (dtype)
+    f.create_dataset("time", data=light["time"])
+    f.create_dataset("position", data=light["position"])
+    f.create_dataset("signal", data=light["signal"])
 
 process_obj = parrot.Process()
 data1 = process_obj.dark_only(dark1, scale=50e-12 / 20, delay_value=-1.526, debug=False)
