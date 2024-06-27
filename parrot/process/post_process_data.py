@@ -45,6 +45,11 @@ def contiguous_regions(condition):
     idx.shape = (-1, 2)
     return idx
 
+def _calc_fft(time, signal):
+    dt = (time[-1] - time[0]) / (len(time) - 1)
+    frequency = np.fft.rfftfreq(len(time), dt)
+    signal_fft = np.fft.rfft(signal)
+    return frequency, signal_fft
 
 class PostProcessData:
     def __init__(self, data, debug=True):
@@ -59,15 +64,16 @@ class PostProcessData:
 
     def super_gaussian(self, window_width=0.8, window_shift=0, window_order=10):
         for mode in self.data.keys():
-            signal = self.data[mode]["average"]["time_domain"]
-            win_shift = window_shift * len(signal)
-            win_width = window_width * len(signal)
-            tau = np.arange(0, len(signal))
-            window = np.exp(
-                -2 ** window_order * np.log(2) * np.abs(
-                    (tau - (len(signal) - 1) / 2 - win_shift) / win_width) ** window_order)
-            self.data[mode]["single_traces"] *= window.reshape(-1, 1)
-            self.data[mode]["average"]["time_domain"] *= window
+            if mode == "light" or mode == "dark1" or mode == "dark2" or mode == "dark":
+                signal = self.data[mode]["average"]["time_domain"]
+                win_shift = window_shift * len(signal)
+                win_width = window_width * len(signal)
+                tau = np.arange(0, len(signal))
+                window = np.exp(
+                    -2 ** window_order * np.log(2) * np.abs(
+                        (tau - (len(signal) - 1) / 2 - win_shift) / win_width) ** window_order)
+                self.data[mode]["single_traces"] *= window.reshape(-1, 1)
+                self.data[mode]["average"]["time_domain"] *= window
         self.applied_functions.append("window")
         return self.data
 
@@ -143,9 +149,10 @@ class PostProcessData:
         start_idx = np.where(time >= time_start)[0][0]
         stop_idx = np.where(time >= time_stop)[0][0]
         for mode in self.data.keys():
-            self.data[mode]["single_traces"] = self.data[mode]["single_traces"][start_idx:stop_idx, :]
-            self.data[mode]["average"]["time_domain"] = self.data[mode]["average"]["time_domain"][start_idx:stop_idx]
-            self.data[mode]["light_time"] = self.data[mode]["light_time"][start_idx:stop_idx]
+            if mode == "light" or mode == "dark1" or mode == "dark2" or mode == "dark":
+                self.data[mode]["single_traces"] = self.data[mode]["single_traces"][start_idx:stop_idx, :]
+                self.data[mode]["average"]["time_domain"] = self.data[mode]["average"]["time_domain"][start_idx:stop_idx]
+                self.data[mode]["light_time"] = self.data[mode]["light_time"][start_idx:stop_idx]
         return self.data
 
     def subtract_polynomial(self, order=2):
@@ -165,8 +172,9 @@ class PostProcessData:
             z = np.polyfit(time, self.data["dark"]["average"]["time_domain"], order)
             p = np.poly1d(z)
             for mode in self.data.keys():
-                self.data[mode]["single_traces"] -= p(self.data[mode]["light_time"]).reshape(-1, 1)
-                self.data[mode]["average"]["time_domain"] -= p(self.data[mode]["light_time"])
+                if mode == "light" or mode == "dark1" or mode == "dark2" or mode == "dark":
+                    self.data[mode]["single_traces"] -= p(self.data[mode]["light_time"]).reshape(-1, 1)
+                    self.data[mode]["average"]["time_domain"] -= p(self.data[mode]["light_time"])
             self.applied_functions.append("subtract_polynomial")
             return self.data
 
@@ -236,7 +244,7 @@ class PostProcessData:
         self.applied_functions.append("correct_gain_in_spectrum")
         return self.data
 
-    def get_statistics(self):
+    def get_statistics(self, data):
         """
         Basic definition of Dynamic range and Signal-To-Noise ratio as defined in:
 
@@ -253,25 +261,25 @@ class PostProcessData:
         SNR(f) = mean(light(f)) / STD(light(f))
         DR(f) = ( mean(light(f)) - mean(noise(f)) ) / STD(noise(f))
         """
-        if "light" not in self.data.keys():
+        if "light" not in data.keys():
             raise NotImplementedError("No light-data detected, cannot calculate any meaningful SNR/DR.")
         else:
-            self.data["statistics"] = {}
+            data["statistics"] = {}
             # Signal-to-Noise ratio (SNR)
             # Time Domain
             # Calculate mean signal
-            mean_light = np.mean(self.data["light"]["single_traces"], axis=1)
+            mean_light = np.mean(data["light"]["single_traces"], axis=1)
             # Extract index of peak location
             index = np.argmax(mean_light)
-            std_of_peak = np.std(self.data["light"]["single_traces"][index, :])
+            std_of_peak = np.std(data["light"]["single_traces"][index, :])
             peak_snr_td = np.max(mean_light) / std_of_peak
             # Frequency Domain
-            dt = (self.data["light"]["light_time"][-1] - self.data["light"]["light_time"][0]) / (
-                        len(self.data["light"]["light_time"]) - 1)
-            frequency = np.fft.rfftfreq(len(self.data["light"]["light_time"]), dt)
-            all_traces_fft = np.abs(np.fft.rfft(self.data["light"]["single_traces"], axis=0))
+            dt = (data["light"]["light_time"][-1] - data["light"]["light_time"][0]) / (
+                        len(data["light"]["light_time"]) - 1)
+            frequency = np.fft.rfftfreq(len(data["light"]["light_time"]), dt)
+            all_traces_fft = np.abs(np.fft.rfft(data["light"]["single_traces"], axis=0))
             std_light_fft = np.std(all_traces_fft, axis=1)
-            mean_light_fft = np.abs(np.fft.rfft(np.mean(self.data["light"]["single_traces"], axis=1)))
+            mean_light_fft = np.abs(np.fft.rfft(np.mean(data["light"]["single_traces"], axis=1)))
             peak_snr_fd = np.max(mean_light_fft / std_light_fft)
             # Calculate FWHM in frequency domain
             condition = (mean_light_fft / np.max(mean_light_fft)) > 0.5
@@ -281,27 +289,62 @@ class PostProcessData:
                             f"{EngFormatter('Hz')(frequency[start])} to {EngFormatter('Hz')(frequency[stop])} = {EngFormatter('Hz')(frequency[stop - 1] - frequency[start])}")
                 if stop - start > range_idx:
                     range_idx = stop - start
-                    self.data["statistics"]["fwhm_start"] = frequency[start]
-                    self.data["statistics"]["fwhm_stop"] = frequency[stop - 1]
-                    self.data["statistics"]["fwhm"] = frequency[stop - 1] - frequency[start]
+                    data["statistics"]["fwhm_start"] = frequency[start]
+                    data["statistics"]["fwhm_stop"] = frequency[stop - 1]
+                    data["statistics"]["fwhm"] = frequency[stop - 1] - frequency[start]
             if range_idx == 0:
                 logger.warning("Could not find Full-Width at Half-Maximum (FWHM).")
-            self.data["statistics"]["peak_SNR_time"] = peak_snr_td
-            self.data["statistics"]["peak_SNR_freq"] = peak_snr_fd
-
-        if "dark" in self.data.keys():
+            data["statistics"]["peak_SNR_time"] = peak_snr_td
+            data["statistics"]["peak_SNR_freq"] = peak_snr_fd
+        if "dark" in data.keys():
             # Dynamic Range (DR)
             # Time Domain
-            mean_light = np.mean(self.data["light"]["single_traces"], axis=1)
+            mean_light = np.mean(data["light"]["single_traces"], axis=1)
             index = np.argmax(mean_light)
-            mean_noise = np.mean(self.data["dark"]["single_traces"][index, :])
-            std_noise = np.std(self.data["dark"]["single_traces"][index, :])
+            mean_noise = np.mean(data["dark"]["single_traces"][index, :])
+            std_noise = np.std(data["dark"]["single_traces"][index, :])
             peak_dr_td = (np.max(mean_light) - mean_noise) / std_noise
             # Frequency Domain
-            mean_light_fft = np.abs(np.fft.rfft(np.mean(self.data["light"]["single_traces"], axis=1)))
-            mean_dark_fft = np.abs(np.fft.rfft(np.mean(self.data["dark"]["single_traces"], axis=1)))
-            std_dark_fft = np.std(np.abs(np.fft.rfft(self.data["dark"]["single_traces"], axis=0)), axis=1)
+            mean_light_fft = np.abs(np.fft.rfft(np.mean(data["light"]["single_traces"], axis=1)))
+            mean_dark_fft = np.abs(np.fft.rfft(np.mean(data["dark"]["single_traces"], axis=1)))
+            std_dark_fft = np.std(np.abs(np.fft.rfft(data["dark"]["single_traces"], axis=0)), axis=1)
             peak_dr_fd = np.max((mean_light_fft - mean_dark_fft) / std_dark_fft)
-            self.data["statistics"]["peak_DR_time"] = peak_dr_td
-            self.data["statistics"]["peak_DR_freq"] = peak_dr_fd
-        return self.data
+            data["statistics"]["peak_DR_time"] = peak_dr_td
+            data["statistics"]["peak_DR_freq"] = peak_dr_fd
+        return data
+
+    def extract_bandwidth(self, data, min_THz_frequency=0e12, max_THz_frequency=10e12, threshold_dB=10):
+        """Extract the bandwidth of the power spectrum, displayed on a logarithmic plot.
+        """
+        # Find frequency range, where averaged light traces in frequency domain are
+        # at least threshold_dB above the averaged dark trace.
+        frequency_dark, signal_fft_dark = _calc_fft(data["dark"]["light_time"],
+                                                   data["dark"]["average"]["time_domain"])
+        frequency_light, signal_fft_light = _calc_fft(data["light"]["light_time"],
+                                                     data["light"]["average"]["time_domain"])
+        filter_frequency_dark = (frequency_dark >= min_THz_frequency) & (frequency_dark <= max_THz_frequency)
+        filter_frequency_light = (frequency_light >= min_THz_frequency) & (
+                frequency_light <= max_THz_frequency)
+        if np.all(np.diff(frequency_dark[filter_frequency_dark]) > 0):
+            power_dark = np.interp(frequency_light[filter_frequency_light], frequency_dark[filter_frequency_dark],
+                                   np.abs(signal_fft_dark[filter_frequency_dark]) ** 2)
+            power_light = np.abs(signal_fft_light[filter_frequency_light]) ** 2
+            frequency = frequency_light[filter_frequency_light]
+        else:
+            raise ValueError("The frequency axis is not strictly increasing, "
+                             "which is a necessity for numpy's interpolation function.")
+        condition = (10 * np.log10(power_light) - 10 * np.log10(power_dark)) > threshold_dB
+        range_idx = 0
+        for start, stop in contiguous_regions(condition):
+            logger.info(f"Found segment above {threshold_dB} dB, from \n" +
+                        f"{EngFormatter('Hz')(frequency[start])} to {EngFormatter('Hz')(frequency[stop - 1])} = {EngFormatter('Hz')(frequency[stop - 1] - frequency[start])}")
+            if stop - start > range_idx:
+                range_idx = stop - start
+                data["statistics"]["bandwidth_start"] = frequency[start]
+                data["statistics"]["bandwidth_stop"] = frequency[stop - 1]
+                data["statistics"]["bandwidth"] = frequency[stop - 1] - frequency[start]
+                data["statistics"]["bandwidth_threshold_dB"] = threshold_dB
+        if range_idx == 0:
+            logger.warning(f"Could not find bandwidth above {threshold_dB} dB.")
+        return data
+

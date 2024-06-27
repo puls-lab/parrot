@@ -5,6 +5,7 @@ from pathlib import Path
 
 # Own library
 from ..process.post_process_data import contiguous_regions
+from ..process.post_process_data import PostProcessData
 
 import logging
 
@@ -17,6 +18,7 @@ stream_handler = logging.StreamHandler()
 stream_handler.setFormatter(formatter)
 logger.addHandler(stream_handler)
 logger.setLevel(logging.INFO)
+
 
 def calc_fft(time, signal):
     dt = (time[-1] - time[0]) / (len(time) - 1)
@@ -107,7 +109,7 @@ class Plot:
         frequency_dark, matrix_dark_fft = cumulated_mean_fft(data["dark"])
         frequency_light, matrix_light_fft = cumulated_mean_fft(data["light"])
         filter_frequency = (frequency_dark >= data["statistics"]["bandwidth_start"]) & (
-                    frequency_dark <= data["statistics"]["bandwidth_stop"])
+                frequency_dark <= data["statistics"]["bandwidth_stop"])
         dark_norm = np.mean(np.abs(matrix_dark_fft[-1, :][filter_frequency]) ** 2)
         filter_frequency = (frequency_dark >= self.min_THz_frequency) & (frequency_dark <= self.max_THz_frequency)
         ax[1].plot(frequency_dark[filter_frequency],
@@ -131,7 +133,7 @@ class Plot:
         for j, i in enumerate(trace_range):
             # Select a temporary subset of the dataframe, first dark
             filter_frequency = (frequency_dark >= data["statistics"]["bandwidth_start"]) & (
-                        frequency_dark <= data["statistics"]["bandwidth_stop"])
+                    frequency_dark <= data["statistics"]["bandwidth_stop"])
             frequency, signal_fft = frequency_dark[filter_frequency], matrix_dark_fft[i, :][filter_frequency]
             dark_norm = np.mean(np.abs(signal_fft) ** 2)
             # Then light
@@ -159,7 +161,7 @@ class Plot:
             script_path = Path(__file__).resolve().parent
             h2o = np.loadtxt(script_path / "WaterAbsorptionLines.csv", delimiter=",", skiprows=8)
             filter_frequency = (h2o[:, 0] >= data["statistics"]["bandwidth_start"]) & (
-                        h2o[:, 0] <= data["statistics"]["bandwidth_stop"])
+                    h2o[:, 0] <= data["statistics"]["bandwidth_stop"])
             # Filter for specified frequency range
             h2o = h2o[filter_frequency, :]
             alpha_values = np.linspace(0.4, 0.05, len(h2o) - 1)
@@ -172,9 +174,9 @@ class Plot:
 
         # Third plot, effect of averaging
         filter_dark = (frequency_dark >= data["statistics"]["bandwidth_start"]) & (
-                    frequency_dark <= data["statistics"]["bandwidth_stop"])
+                frequency_dark <= data["statistics"]["bandwidth_stop"])
         filter_light = (frequency_light >= data["statistics"]["bandwidth_start"]) & (
-                    frequency_light <= data["statistics"]["bandwidth_stop"])
+                frequency_light <= data["statistics"]["bandwidth_stop"])
         min_of_max_traces = np.min([data["light"]["number_of_traces"], data["dark"]["number_of_traces"]])
         dynamic_range = np.max(np.abs(matrix_light_fft[:min_of_max_traces, filter_light]) ** 2, axis=1) \
                         / np.mean(np.abs(matrix_dark_fft[:min_of_max_traces, filter_dark]) ** 2, axis=1)
@@ -197,6 +199,8 @@ class Plot:
         fig, axs = plt.subplots(nrows=1, ncols=3, figsize=figsize)
         fig_title = ""
         ax = axs[0]
+        if "dark1" in data.keys() and "dark2" in data.keys() and "dark" not in data.keys():
+            raise NotImplementedError("You supplied two dark measurements but did not execute `correct_systematic_errors()` of the `Process`-class yet.")
         # First subplot, time domain
         for mode in data.keys():
             if mode == "light":
@@ -208,10 +212,10 @@ class Plot:
             else:
                 continue
             ax.plot(data[mode]["light_time"],
-                       data[mode]["average"]["time_domain"],
-                       color=color,
-                       alpha=0.8,
-                       label=f"Average of {data[mode]['number_of_traces']} {label_text} traces")
+                    data[mode]["average"]["time_domain"],
+                    color=color,
+                    alpha=0.8,
+                    label=f"Average of {data[mode]['number_of_traces']} {label_text} traces")
         ax.grid(True)
         # If the data got artificially extended with zeros in timedomain,
         # we want to limit the x-axis in timedomain to just zoom on the data.
@@ -237,12 +241,15 @@ class Plot:
 
         ax = axs[1]
         # Second subplot, frequency-domain
-        data = self.extract_bandwidth(data)
+        data = PostProcessData(data, debug=self.debug).get_statistics(data)
+        data = PostProcessData(data, debug=self.debug).extract_bandwidth(data,
+                                                                         min_THz_frequency=self.min_THz_frequency,
+                                                                         max_THz_frequency=self.max_THz_frequency)
         # Prepare data, for an accumulated mean fo all single-traces calculate the FFT and dynamic range
         frequency_dark, dark_fft = calc_fft(data["dark"]["light_time"], data["dark"]["average"]["time_domain"])
         frequency_light, light_fft = calc_fft(data["light"]["light_time"], data["light"]["average"]["time_domain"])
         filter_frequency_dark = (frequency_dark >= data["statistics"]["bandwidth_start"]) & (
-                    frequency_dark <= data["statistics"]["bandwidth_stop"])
+                frequency_dark <= data["statistics"]["bandwidth_stop"])
         dark_norm = np.mean(np.abs(dark_fft[filter_frequency_dark]) ** 2)
         filter_frequency = (frequency_dark >= self.min_THz_frequency) & (frequency_dark <= self.max_THz_frequency)
         frequency, signal_fft = frequency_light[filter_frequency], light_fft[filter_frequency]
@@ -269,24 +276,26 @@ class Plot:
         ax.legend()
 
         ax = axs[2]
-        ax.plot(frequency_dark[filter_frequency],
-                10 * np.log10(np.abs(dark_fft[filter_frequency]) ** 2 / dark_norm),
-                color="black",
-                alpha=0.8,
-                label=f"{data['dark']['number_of_traces']} dark traces averaged")
+        for mode in data.keys():
+            if mode == "dark" or mode == "dark1" or mode == "dark2":
+                ax.plot(frequency_dark[filter_frequency],
+                        10 * np.log10(np.abs(dark_fft[filter_frequency]) ** 2 / dark_norm),
+                        color="black",
+                        alpha=0.8,
+                        label=f"{data[mode]['number_of_traces']} dark traces averaged")
         ax.axvline(data["statistics"]["bandwidth_start"],
-                      linestyle="--",
-                      color="black",
-                      alpha=0.5)
+                   linestyle="--",
+                   color="black",
+                   alpha=0.5)
         ax.axvline(data["statistics"]["bandwidth_stop"],
-                      linestyle="--",
-                      color="black",
-                      alpha=0.5,
+                   linestyle="--",
+                   color="black",
+                   alpha=0.5,
                    label=f"Bandwidth > {data['statistics']['bandwidth_threshold_dB']} dB: {EngFormatter('Hz', places=1)(data['statistics']['bandwidth'])}")
         ax.plot(frequency, 10 * np.log10(np.abs(signal_fft) ** 2 / dark_norm),
-                   color="tab:orange",
-                   alpha=0.8,
-                   label=f"{data['light']['number_of_traces']} averaged THz traces")
+                color="tab:orange",
+                alpha=0.8,
+                label=f"{data['light']['number_of_traces']} averaged THz traces")
         ax.xaxis.set_major_formatter(EngFormatter(unit='Hz'))
         ax.set_ylabel(r"Power spectrum [dB]")
         ax.set_xlabel("Frequency")
@@ -295,57 +304,24 @@ class Plot:
             script_path = Path(__file__).resolve().parent
             h2o = np.loadtxt(script_path / "WaterAbsorptionLines.csv", delimiter=",", skiprows=8)
             filter_frequency = (h2o[:, 0] >= data["statistics"]["bandwidth_start"]) & (
-                        h2o[:, 0] <= data["statistics"]["bandwidth_stop"])
+                    h2o[:, 0] <= data["statistics"]["bandwidth_stop"])
             # Filter for specified frequency range
             h2o = h2o[filter_frequency, :]
             alpha_values = np.linspace(0.4, 0.05, len(h2o) - 1)
             h2o_sorted_freq = h2o[np.argsort(h2o[:, 2]), 0]
             ax.axvline(h2o_sorted_freq[0], linewidth=1, color='tab:blue', alpha=0.5, label=r"$H_{2}O$ absorption "
-                                                                                              "lines")
+                                                                                           "lines")
             [ax.axvline(_x, linewidth=1, color='tab:blue', alpha=alpha_values[i]) for i, _x in
              enumerate(h2o_sorted_freq[1:])]
         ax.legend(loc="upper right")
 
         filter_dark = (frequency_dark >= data["statistics"]["bandwidth_start"]) & (
-                    frequency_dark <= data["statistics"]["bandwidth_stop"])
+                frequency_dark <= data["statistics"]["bandwidth_stop"])
         filter_light = (frequency_light >= data["statistics"]["bandwidth_start"]) & (
-                    frequency_light <= data["statistics"]["bandwidth_stop"])
+                frequency_light <= data["statistics"]["bandwidth_stop"])
         dynamic_range = np.max(np.abs(light_fft[filter_light]) ** 2) / np.mean(np.abs(dark_fft[filter_dark]) ** 2)
         fig_title += r", $\mathrm{DR}_{\mathrm{peak}}$" + f" (freq.-domain): {int(np.round(10 * np.log10(dynamic_range)))} dB"
         fig.subplots_adjust(top=0.9)
         fig.suptitle(fig_title)
         plt.tight_layout()
         plt.show()
-
-    def extract_bandwidth(self, data, threshold_dB=10):
-        # Find frequency range, where averaged light traces in frequency domain are
-        # at least 10 dB above the averaged dark trace
-        frequency_dark, signal_fft_dark = calc_fft(data["dark"]["light_time"],
-                                                   data["dark"]["average"]["time_domain"])
-        frequency_light, signal_fft_light = calc_fft(data["light"]["light_time"],
-                                                     data["light"]["average"]["time_domain"])
-        filter_frequency_dark = (frequency_dark >= self.min_THz_frequency) & (frequency_dark <= self.max_THz_frequency)
-        filter_frequency_light = (frequency_light >= self.min_THz_frequency) & (
-                frequency_light <= self.max_THz_frequency)
-        if np.all(np.diff(frequency_dark[filter_frequency_dark]) > 0):
-            power_dark = np.interp(frequency_light[filter_frequency_light], frequency_dark[filter_frequency_dark],
-                                   np.abs(signal_fft_dark[filter_frequency_dark]) ** 2)
-            power_light = np.abs(signal_fft_light[filter_frequency_light]) ** 2
-            frequency = frequency_light[filter_frequency_light]
-        else:
-            raise ValueError("The frequency axis is not strictly increasing, "
-                             "which is a necessity for numpy's interpolation function.")
-        condition = (10 * np.log10(power_light) - 10 * np.log10(power_dark)) > threshold_dB
-        range_idx = 0
-        for start, stop in contiguous_regions(condition):
-            logger.info(f"Found segment above {threshold_dB} dB, from \n" +
-                        f"{EngFormatter('Hz')(frequency[start])} to {EngFormatter('Hz')(frequency[stop - 1])} = {EngFormatter('Hz')(frequency[stop - 1] - frequency[start])}")
-            if stop - start > range_idx:
-                range_idx = stop - start
-                data["statistics"]["bandwidth_start"] = frequency[start]
-                data["statistics"]["bandwidth_stop"] = frequency[stop - 1]
-                data["statistics"]["bandwidth"] = frequency[stop - 1] - frequency[start]
-                data["statistics"]["bandwidth_threshold_dB"] = threshold_dB
-        if range_idx == 0:
-            logger.warning(f"Could not find bandwidth above {threshold_dB} dB.")
-        return data
