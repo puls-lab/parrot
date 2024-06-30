@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.signal import sosfiltfilt, butter, find_peaks, correlate, correlation_lags
+from scipy.signal import sosfiltfilt, butter, find_peaks
 from scipy.optimize import minimize
 import scipy.interpolate as interp
 # TODO: Remove matplotlib later (but not EngFormatter)
@@ -8,317 +8,295 @@ import matplotlib
 matplotlib.use('TKAgg')
 import matplotlib.pyplot as plt
 from matplotlib.ticker import EngFormatter
-from numba import njit
 # TODO: Delete time later
 import time
+from ..config import config
 
-import logging
 
-logger = logging.getLogger(__name__)
-logger.handlers.clear()
+def run(data,
+        scale=None,
+        delay_value=None,
+        max_thz_frequency=50e12,
+        recording_type="multi_cycle",
+        filter_position=True,
+        lowcut_position=None,
+        highcut_position=100,
+        filter_signal=True,
+        lowcut_signal=1,
+        highcut_signal=None,
+        consider_all_traces=False,
+        debug=False):
+    if debug:
+        config.set_debug(True)
+    else:
+        config.set_debug(False)
+    data["scale"] = scale
+    data["delay_value"] = delay_value
+    data["number_of_traces"] = None
+    data["interpolation_resolution"] = None
+    data["trace_cut_index"] = None
 
-formatter = logging.Formatter("[%(levelname)s] %(name)s: %(message)s")
+    # Timestep in lab time
+    data["dt"] = (data["time"][-1] - data["time"][0]) / (len(data["time"]) - 1)
+    if filter_position:
+        data["position"] = butter_filter(data["position"],
+                                         1 / data["dt"],
+                                         lowcut=lowcut_position,
+                                         highcut=highcut_position)
+        if lowcut_position is not None and highcut_position is None:
+            config.logger.info(f"Position data is high-pass filtered with {EngFormatter('Hz')(lowcut_position)}.")
+        elif lowcut_position is None and highcut_position is not None:
+            config.logger.info(f"Position data is low-pass filtered with {EngFormatter('Hz')(highcut_position)}.")
+        elif lowcut_position is not None and highcut_position is not None:
+            config.logger.info(
+                f"Position data is low- and high-pass filtered with [{EngFormatter('Hz')(lowcut_position)}, {EngFormatter('Hz')(lowcut_position)}].")
+    # Calculate the total record length in THz time, afterward we can select the correct interpolation resolution
+    data["thz_recording_length"] = data["scale"] * (np.max(data["position"]) - np.min(data["position"]))
+    data["thz_start_offset"] = data["scale"] * np.min(data["position"])
+    if filter_signal:
+        if highcut_signal is None:
+            highcut_signal = max_thz_frequency
+        data["signal"] = butter_filter(data["signal"],
+                                       1 / data["dt"],
+                                       lowcut=lowcut_signal,
+                                       highcut=highcut_signal)
 
-stream_handler = logging.StreamHandler()
-stream_handler.setFormatter(formatter)
-logger.addHandler(stream_handler)
-logger.setLevel(logging.INFO)
-
-class PrepareData:
-    def __init__(self,
-                 raw_data,
-                 recording_type=None,
-                 scale=None,
-                 max_THz_frequency=50e12,
-                 delay_value=None,
-                 filter_position=True,
-                 lowcut_position=None,
-                 highcut_position=100,
-                 filter_signal=True,
-                 lowcut_signal=1,
-                 highcut_signal=None,
-                 consider_all_traces=False,
-                 debug=False):
-        # scale:        Scale between [V] of position data and light time [s]
-        #               For example for the APE 50 ps shaker it would be scale=50e-12/20 (50 ps for +-10V)
-        # delay-value:  Delay between recorded position data and signal data (due to i.e. different bandwidth)
-        # position/signal: Copy raw-data to pre-processed data
-        self.data = {"scale": scale,
-                     "delay_value": delay_value,
-                     "position": raw_data["position"],
-                     "signal": raw_data["signal"]}
-        self.recording_type = recording_type
-        self.debug = debug
-        if not debug:
-            logger.setLevel(logging.WARNING)
-        # Maximum THz frequency, which can be later displayed with interpolated data.
-        # Large values mean many interpolation points, this can fill up RAM quickly when data contains 1000s of traces.
-        self.max_THz_frequency = max_THz_frequency
-        # Possible lowcut/highcut filtering of position and signal
-        self.filter_position = filter_position
-        self.lowcut_position = lowcut_position
-        self.highcut_position = highcut_position
-        self.filter_signal = filter_signal
-        self.lowcut_signal = lowcut_signal
-        self.highcut_signal = highcut_signal
-        # Timestep in lab time
-        self.dt = (raw_data["time"][-1] - raw_data["time"][0]) / (len(raw_data["time"]) - 1)
-        self.data["number_of_traces"] = None
-        self.data["interpolation_resolution"] = None
-        self.data["trace_cut_index"] = None
-        # Consider, if all traces are used to calculate standard deviation (STD) to find optimal delay.
-        # This can speed up finding the optimal delay, this setting is capping number of traces to 100 to evaluate STD.
-        self.consider_all_traces = consider_all_traces
-
-    def run(self):
-        if self.filter_position:
-            self.data["position"] = self.butter_filter(self.data["position"],
-                                                       1 / self.dt,
-                                                       lowcut=self.lowcut_position,
-                                                       highcut=self.highcut_position)
-            if self.lowcut_position is not None and self.highcut_position is None:
-                logger.info(f"Position data is high-pass filtered with {EngFormatter('Hz')(self.lowcut_position)}.")
-            elif self.lowcut_position is None and self.highcut_position is not None:
-                logger.info(f"Position data is low-pass filtered with {EngFormatter('Hz')(self.highcut_position)}.")
-            elif self.lowcut_position is not None and self.highcut_position is not None:
-                logger.info(f"Position data is low- and high-pass filtered with [{EngFormatter('Hz')(self.lowcut_position)}, {EngFormatter('Hz')(self.lowcut_position)}].")
-        # Calculate the total record length in THz time, afterward we can select the correct interpolation resolution
-        self.data["thz_recording_length"] = self.data["scale"] * (
-                np.max(self.data["position"]) - np.min(self.data["position"]))
-        self.data["thz_start_offset"] = self.data["scale"] * np.min(self.data["position"])
-        if self.filter_signal:
-            if self.highcut_signal is None:
-                self.highcut_signal = self.max_THz_frequency
-            self.data["signal"] = self.butter_filter(self.data["signal"],
-                                                     1 / self.dt,
-                                                     lowcut=self.lowcut_signal,
-                                                     highcut=self.highcut_signal)
-
-            if self.lowcut_signal is not None and self.highcut_signal is None:
-                logger.info(f"Signal data is high-pass filtered with {EngFormatter('Hz')(self.lowcut_signal)}.")
-            elif self.lowcut_signal is None and self.highcut_signal is not None:
-                logger.info(f"Signal data is low-pass filtered with {EngFormatter('Hz')(self.highcut_signal)}.")
-            elif self.lowcut_signal is not None and self.highcut_signal is not None:
-                logger.info(f"Signal data is low- and high-pass filtered with [{EngFormatter('Hz')(self.lowcut_signal)}, {EngFormatter('Hz')(self.highcut_signal)}].")
-            self.resample_data()
-        if self.recording_type == "single_cycle":
-            if np.argmin(self.data["position"]) - np.argmax(self.data["position"]) < 0:
-                # Either first minimum, then maximum
-                idx = np.array([np.argmin(self.data["position"]), np.argmax(self.data["position"])])
-            else:
-                # Otherwise, first maximum, then minimum
-                idx = np.array([np.argmax(self.data["position"]), np.argmin(self.data["position"])])
+        if lowcut_signal is not None and highcut_signal is None:
+            config.logger.info(f"Signal data is high-pass filtered with {EngFormatter('Hz')(lowcut_signal)}.")
+        elif lowcut_signal is None and highcut_signal is not None:
+            config.logger.info(f"Signal data is low-pass filtered with {EngFormatter('Hz')(highcut_signal)}.")
+        elif lowcut_signal is not None and highcut_signal is not None:
+            config.logger.info(
+                f"Signal data is low- and high-pass filtered with [{EngFormatter('Hz')(lowcut_signal)}, {EngFormatter('Hz')(highcut_signal)}].")
+        data = resample_data(data, max_thz_frequency)
+    if recording_type == "single_cycle":
+        if np.argmin(data["position"]) - np.argmax(data["position"]) < 0:
+            # Either first minimum, then maximum
+            idx = np.array([np.argmin(data["position"]), np.argmax(data["position"])])
         else:
-            # Get the peaks of the sinusoid (or similar) of the position data, then we know the number of traces
-            self.data["trace_cut_index"] = self.get_multiple_index()
-        self.cut_incomplete_traces()
-        if self.debug:
-            fig, ax = plt.subplots()
-            ax.plot(self.data["position"])
-            [ax.axvline(x, color="black", alpha=0.8) for x in self.data["trace_cut_index"]]
-            ax.set_xlabel("Time sample")
-            ax.set_ylabel("Voltage")
-            ax.grid(True)
-        for exponent in range(6, 20):
-            if 0.5 * (2 ** exponent / self.data["thz_recording_length"]) > self.max_THz_frequency:
-                self.data["interpolation_resolution"] = 2 ** exponent
-                logger.info(
-                      "Found interpolation resolution to have more than "+
-                      f"{EngFormatter('Hz', places=1)(self.max_THz_frequency)}: 2 ** {exponent} = "+
-                      f"{2 ** exponent} points")
-                break
-        if self.data["interpolation_resolution"] is None:
-            raise ValueError("Could not find a proper interpolation resolution between 2**6 and 2**20."
-                             "Did you select the right scale [ps/V] and the right max_THz_frequency?")
-        # If we recorded multiple forward/backward traces, we can calculate the delay between position and signal.
-        if self.recording_type == "multi_cycle":
-            # Get timedelay between position and signal
-            if self.debug:
-                fig, ax = plt.subplots(nrows=2, ncols=1, sharex=True, sharey=True)
-                split_pos = np.split(self.data["position"], self.data["trace_cut_index"])
-                split_sig = np.split(self.data["signal"], self.data["trace_cut_index"])
-                for i in range(1, 10):
-                    if i % 2:
-                        ax[0].plot(self.data["scale"] * split_pos[i],
-                                   split_sig[i],
-                                   color="tab:blue", alpha=0.8)
-                    else:
-                        ax[0].plot(self.data["scale"] * split_pos[i],
-                                   split_sig[i],
-                                   color="tab:orange", alpha=0.8)
-                ax[0].xaxis.set_major_formatter(EngFormatter(unit='s'))
-                ax[0].yaxis.set_major_formatter(EngFormatter(unit='V'))
-                ax[0].set_title('Signal vs. Delay without time delay compensation')
-            self.original_time = np.arange(0, self.dt * len(self.data["position"]), self.dt)
-            self.position_interpolated = interp.interp1d(self.original_time,
-                                                         self.data["position"],
-                                                         bounds_error=False,
-                                                         fill_value=np.nan)
-            if self.data["delay_value"] is None:
-                logger.info(
-                    f"No delay_value provided, searching now for optimal delay:")
-                self.data["delay_value"] = self.get_delay()
-            self.shift_position(self.data["delay_value"])
-            if self.debug:
-                split_pos = np.split(self.data["position"], self.data["trace_cut_index"])
-                split_sig = np.split(self.data["signal"], self.data["trace_cut_index"])
-                for i in range(1, 10):
-                    if i % 2:
-                        ax[1].plot(self.data["scale"] * split_pos[i],
-                                   split_sig[i],
-                                   color="tab:blue", alpha=0.8)
-                    else:
-                        ax[1].plot(self.data["scale"] * split_pos[i],
-                                   split_sig[i],
-                                   color="tab:orange", alpha=0.8)
-                ax[1].xaxis.set_major_formatter(EngFormatter(unit='s'))
-                ax[1].yaxis.set_major_formatter(EngFormatter(unit='V'))
-                delay_amount = self.data["delay_value"] * self.dt
-                ax[1].set_title(
-                    f'Signal vs. Delay with {self.data["delay_value"]} samples ' +
-                    f'({EngFormatter("s", places=1)(delay_amount)}) time delay compensation')
-                plt.tight_layout()
-        return self.data
+            # Otherwise, first maximum, then minimum
+            idx = np.array([np.argmax(data["position"]), np.argmin(data["position"])])
+    else:
+        # Get the peaks of the sinusoid (or similar) of the position data, then we know the number of traces
+        data["trace_cut_index"] = get_multiple_index(data, filter_position, highcut_position)
+    data = cut_incomplete_traces(data)
+    if debug:
+        fig, ax = plt.subplots()
+        ax.plot(data["position"])
+        [ax.axvline(x, color="black", alpha=0.8) for x in data["trace_cut_index"]]
+        ax.set_xlabel("Time sample")
+        ax.set_ylabel("Voltage")
+        ax.grid(True)
+    for exponent in range(6, 20):
+        if 0.5 * (2 ** exponent / data["thz_recording_length"]) > max_thz_frequency:
+            data["interpolation_resolution"] = 2 ** exponent
+            config.logger.info(
+                "Found interpolation resolution to have more than " +
+                f"{EngFormatter('Hz', places=1)(max_thz_frequency)}: 2 ** {exponent} = " +
+                f"{2 ** exponent} points")
+            break
+    if data["interpolation_resolution"] is None:
+        raise ValueError("Could not find a proper interpolation resolution between 2**6 and 2**20."
+                         "Did you select the right scale [ps/V] and the right max_THz_frequency?")
+    # If we recorded multiple forward/backward traces, we can calculate the delay between position and signal.
+    if recording_type == "multi_cycle":
+        # Get timedelay between position and signal
+        if debug:
+            fig, ax = plt.subplots(nrows=2, ncols=1, sharex=True, sharey=True)
+            split_pos = np.split(data["position"], data["trace_cut_index"])
+            split_sig = np.split(data["signal"], data["trace_cut_index"])
+            for i in range(1, 10):
+                if i % 2:
+                    ax[0].plot(data["scale"] * split_pos[i],
+                               split_sig[i],
+                               color="tab:blue", alpha=0.8)
+                else:
+                    ax[0].plot(data["scale"] * split_pos[i],
+                               split_sig[i],
+                               color="tab:orange", alpha=0.8)
+            ax[0].xaxis.set_major_formatter(EngFormatter(unit='s'))
+            ax[0].yaxis.set_major_formatter(EngFormatter(unit='V'))
+            ax[0].set_title('Signal vs. Delay without time delay compensation')
+        original_time = np.arange(0, data["dt"] * len(data["position"]), data["dt"])
+        position_interpolated = interp.interp1d(original_time,
+                                                data["position"],
+                                                bounds_error=False,
+                                                fill_value=np.nan)
+        if data["delay_value"] is None:
+            config.logger.info(
+                f"No delay_value provided, searching now for optimal delay:")
+            data["delay_value"] = get_delay(data, original_time, position_interpolated, consider_all_traces, debug)
+        shift_position(data, original_time, position_interpolated)
+        if debug:
+            split_pos = np.split(data["position"], data["trace_cut_index"])
+            split_sig = np.split(data["signal"], data["trace_cut_index"])
+            for i in range(1, 10):
+                if i % 2:
+                    ax[1].plot(data["scale"] * split_pos[i],
+                               split_sig[i],
+                               color="tab:blue", alpha=0.8)
+                else:
+                    ax[1].plot(data["scale"] * split_pos[i],
+                               split_sig[i],
+                               color="tab:orange", alpha=0.8)
+            ax[1].xaxis.set_major_formatter(EngFormatter(unit='s'))
+            ax[1].yaxis.set_major_formatter(EngFormatter(unit='V'))
+            delay_amount = data["delay_value"] * data["dt"]
+            ax[1].set_title(
+                f'Signal vs. Delay with {data["delay_value"]} samples ' +
+                f'({EngFormatter("s", places=1)(delay_amount)}) time delay compensation')
+            plt.tight_layout()
+    return data
 
-    def resample_data(self):
-        """This is a little bit tricky, since we have the sampling time in lab time but not in "light time" [ps].
-        The self.max_THz_frequency is defined in the time frame of the THz sample.
 
-        The max. slope of the position data vs. lab time is the smallest max. THz frequency
-        """
-        # TODO: Needs to be checked
-        # TODO: Currently just skipping values by a factor, we can improve the signal to
-        #  first low-pass filter it, then take the larger steps
-        max_native_frequency = 1 / (np.max(np.gradient(self.data["position"], self.dt)) * self.data[
-            "scale"] * self.dt)  # [V/s] * [ps/V] --> scaling factor
-        factor = np.int64(np.floor(max_native_frequency / self.max_THz_frequency))
-        if factor < 1:
-            logger.debug(f"No resampling necessary.")
-            return
-        current_time = np.arange(0, len(self.data["position"]) * self.dt, self.dt)
-        new_dt = factor * self.dt
-        new_time = np.arange(0, len(self.data["position"]) * self.dt, new_dt)
-        logger.info(f"Current time sample: {EngFormatter('s')(self.dt)} per sample. New time sample: {EngFormatter('s')(new_dt)} per sample.")
-        self.data["position"] = np.interp(new_time, current_time, self.data["position"])
-        self.data["signal"] = np.interp(new_time, current_time, self.data["signal"])
-        self.dt = new_dt
+def resample_data(data, max_thz_frequency):
+    """This is a little bit tricky, since we have the sampling time in lab time but not in "light time" [ps].
+    The self.max_THz_frequency is defined in the time frame of the THz sample.
 
-    def get_multiple_index(self):
-        position = self.data["position"] - np.mean(self.data["position"])
-        if self.filter_position and self.highcut_position is not None:
-            original_max_freq = 1 / self.dt
-            new_max_freq = 10 * self.highcut_position
-            reduction_factor = int(np.round(original_max_freq / new_max_freq))
-            signal_fft = np.abs(np.fft.rfft(np.abs(position[::reduction_factor])))
-            freq = np.fft.rfftfreq(len(position[::reduction_factor]), reduction_factor * self.dt)
-            # Excluding the zero frequency "peak", which is related to offset
-            guess_freq = np.abs(freq[np.argmax(signal_fft[1:]) + 1])
-        else:
-            start = time.time()
-            signal_fft = np.abs(np.fft.rfft(np.abs(position)))
-            freq = np.fft.rfftfreq(len(position), self.dt)
-            guess_freq = np.abs(freq[np.argmax(signal_fft[1:]) + 1])
-            end = time.time()
-            logger.info(
-                f"Taking rFFT over complete position array, taking {EngFormatter('s', places=1)(end - start)}."+
-                  "If you specify filter_position=True and a reasonable highcut_position (in [Hz]), "+
-                  "you can accelerate this process alot.")
+    The max. slope of the position data vs. lab time is the smallest max. THz frequency
+    """
+    # TODO: Needs to be checked
+    # TODO: Currently just skipping values by a factor, we can improve the signal to
+    #  first low-pass filter it, then take the larger steps
+    # [V/s] * [ps/V] --> scaling factor
+    max_native_frequency = 1 / (
+            np.max(np.gradient(data["position"], data["dt"])) * data["scale"] * data["dt"])
+    factor = np.int64(np.floor(max_native_frequency / max_thz_frequency))
+    if factor < 1:
+        config.logger.debug(f"No resampling necessary.")
+        return data
+    current_time = np.arange(0, len(data["position"]) * data["dt"], data["dt"])
+    new_dt = factor * data["dt"]
+    new_time = np.arange(0, len(data["position"]) * data["dt"], new_dt)
+    config.logger.info(
+        f"Current time sample: {EngFormatter('s')(data['dt'])} per sample. New time sample: {EngFormatter('s')(new_dt)} per sample.")
+    data["position"] = np.interp(new_time, current_time, data["position"])
+    data["signal"] = np.interp(new_time, current_time, data["signal"])
+    data["dt"] = new_dt
+    return data
 
-        idx, _ = find_peaks(np.abs(position),
-                            height=0.8 * np.max(np.abs(position)),
-                            distance=round(0.9 * (1 / guess_freq) / self.dt))
-        return idx
 
-    def cut_incomplete_traces(self):
-        """Cut any incomplete trace from the array before the first delay peak or after the last delay peak"""
-        self.data["position"] = self.data["position"][self.data["trace_cut_index"][0]:self.data["trace_cut_index"][-1]]
-        self.data["signal"] = self.data["signal"][self.data["trace_cut_index"][0]:self.data["trace_cut_index"][-1]]
-        self.data["trace_cut_index"] = self.data["trace_cut_index"][1:-1] - self.data["trace_cut_index"][0]
-        self.data["number_of_traces"] = len(self.data["trace_cut_index"]) + 1
+def get_multiple_index(data, filter_position, highcut_position):
+    position = data["position"] - np.mean(data["position"])
+    if filter_position and highcut_position is not None:
+        original_max_freq = 1 / data["dt"]
+        new_max_freq = 10 * highcut_position
+        reduction_factor = int(np.round(original_max_freq / new_max_freq))
+        signal_fft = np.abs(np.fft.rfft(np.abs(position[::reduction_factor])))
+        freq = np.fft.rfftfreq(len(position[::reduction_factor]), reduction_factor * data["dt"])
+        # Excluding the zero frequency "peak", which is related to offset
+        guess_freq = np.abs(freq[np.argmax(signal_fft[1:]) + 1])
+    else:
+        start = time.time()
+        signal_fft = np.abs(np.fft.rfft(np.abs(position)))
+        freq = np.fft.rfftfreq(len(position), data["dt"])
+        guess_freq = np.abs(freq[np.argmax(signal_fft[1:]) + 1])
+        end = time.time()
+        config.logger.info(
+            f"Taking rFFT over complete position array, taking {EngFormatter('s', places=1)(end - start)}." +
+            "If you specify filter_position=True and a reasonable highcut_position (in [Hz]), " +
+            "you can accelerate this process alot.")
 
-    def get_delay(self):
-        self.orig_signal_norm = (self.data["signal"] - np.min(self.data["signal"])) / (
-                np.max(self.data["signal"]) - np.min(self.data["signal"]))
-        self.interpolated_delay = np.linspace(0, 1, self.data["interpolation_resolution"])
-        x0 = [0]
-        init_simplex = np.array([0, 10]).reshape(2, 1)
-        xatol = 0.1
-        res = minimize(self._minimize,
-                       x0,
-                       method="Nelder-Mead",
-                       options={"disp": True,
-                                "maxiter": 30,
-                                "xatol": xatol,
-                                "initial_simplex": init_simplex})
-        return res.x[0]
+    idx, _ = find_peaks(np.abs(position),
+                        height=0.8 * np.max(np.abs(position)),
+                        distance=round(0.9 * (1 / guess_freq) / data["dt"]))
+    return idx
 
-    def _minimize(self, delay):
-        new_time_axis = delay * self.dt + np.copy(self.original_time)
-        new_position = self.position_interpolated(new_time_axis)
-        new_position = (new_position - np.nanmin(new_position)) / (np.nanmax(new_position) - np.nanmin(new_position))
-        signal_norm = (self.data["signal"] - np.min(self.data["signal"])) / (
-                np.max(self.data["signal"]) - np.min(self.data["signal"]))
-        signal_matrix = np.zeros((self.data["interpolation_resolution"], self.data["number_of_traces"]))
-        signal_matrix[:] = np.NaN
 
-        traces_for_testing = zip(np.split(new_position, self.data["trace_cut_index"]),
-                                 np.split(signal_norm, self.data["trace_cut_index"]))
-        i = 0
-        for position, signal in traces_for_testing:
-            # Numpy's interpolation method needs sorted, strictly increasing values
-            signal = signal[np.argsort(position)]
-            position = position[np.argsort(position)]
-            # Since it needs to be strictly increasing, keep only values where x is strictly increasing.
-            # Ignore any other y value when it has the same x value.
-            signal = np.append(signal[0], signal[1:][(np.diff(position) > 0)])
-            position = np.append(position[0], position[1:][(np.diff(position) > 0)])
+def cut_incomplete_traces(data):
+    """Cut any incomplete trace from the array before the first delay peak or after the last delay peak"""
+    data["position"] = data["position"][data["trace_cut_index"][0]:data["trace_cut_index"][-1]]
+    data["signal"] = data["signal"][data["trace_cut_index"][0]:data["trace_cut_index"][-1]]
+    data["trace_cut_index"] = data["trace_cut_index"][1:-1] - data["trace_cut_index"][0]
+    data["number_of_traces"] = len(data["trace_cut_index"]) + 1
+    return data
 
-            signal = np.interp(self.interpolated_delay, position, signal)
-            signal_matrix[:, i] = signal
-            if not self.consider_all_traces and i > 100:
-                break
-            i += 1
-        logger.info(f"Delay:\t{delay[0]:.3f}\tError:\t{np.sum(np.nanstd(signal_matrix, axis=1))}")
-        return np.sum(np.nanstd(signal_matrix, axis=1))
 
-    def shift_position(self, delay_value):
-        logger.info(
-            f"Found optimal delay_value {EngFormatter('Sa', places=3)(delay_value)}, corresponding to a time delay of {EngFormatter('s')(delay_value * self.dt)}.")
-        new_time_axis = delay_value * self.dt + np.copy(self.original_time)
-        self.data["position"] = self.position_interpolated(new_time_axis)
-        self.data["signal"] = self.data["signal"][~np.isnan(self.data["position"])]
-        self.data["position"] = self.data["position"][~np.isnan(self.data["position"])]
+def get_delay(data, original_time, position_interpolated, consider_all_traces, debug=False):
+    interpolated_delay = np.linspace(0, 1, data["interpolation_resolution"])
+    x0 = [0]
+    init_simplex = np.array([0, 10]).reshape(2, 1)
+    xatol = 0.1
+    res = minimize(_minimize,
+                   x0,
+                   method="Nelder-Mead",
+                   args=(data, original_time, position_interpolated, interpolated_delay, consider_all_traces),
+                   options={"disp": debug,
+                            "maxiter": 30,
+                            "xatol": xatol,
+                            "initial_simplex": init_simplex})
+    return res.x[0]
 
-    def butter_filter(self, data, fs, lowcut=None, highcut=None, order=5):
-        sos = self._butter_coeff(fs, lowcut, highcut, order=order)
-        y = sosfiltfilt(sos, data, padtype=None)
-        return y
 
-    @staticmethod
-    def _butter_coeff(fs, lowcut=None, highcut=None, order=None):
-        """Create coefficients for a butterworth filter."""
-        nyq = 0.5 * fs
-        if highcut > nyq:
-            logger.info(
-                f"{EngFormatter('Hz')(highcut)} > Nyquist-frequency ({EngFormatter('Hz')(nyq)}), "
-                "ignoring parameter.")
-            highcut = None
-        if lowcut is not None and highcut is not None:
-            # Bandpass filter
-            if lowcut > highcut:
-                raise ValueError(
-                    f"Lowcut is bigger than highcut! {EngFormatter('Hz')(lowcut)} > {EngFormatter('Hz')(nyq)}")
-            low = lowcut / nyq
-            high = highcut / nyq
-            sos = butter(order, [low, high], analog=False, btype='band', output='sos')
-        elif highcut is not None:
-            # Low pass filter
-            low = highcut / nyq
-            sos = butter(order, low, analog=False, btype='low', output='sos')
-        elif lowcut is not None:
-            # High pass filter
-            high = lowcut / nyq
-            sos = butter(order, high, analog=False, btype='high', output='sos')
-        else:
-            raise NotImplementedError("Lowcut and highcut need to be specified either with a frequency or 'None'.")
-        return sos
+def _minimize(delay, data, original_time, position_interpolated, interpolated_delay, consider_all_traces):
+    new_time_axis = delay * data["dt"] + np.copy(original_time)
+    new_position = position_interpolated(new_time_axis)
+    new_position = (new_position - np.nanmin(new_position)) / (np.nanmax(new_position) - np.nanmin(new_position))
+    signal_norm = (data["signal"] - np.min(data["signal"])) / (
+            np.max(data["signal"]) - np.min(data["signal"]))
+    signal_matrix = np.zeros((data["interpolation_resolution"], data["number_of_traces"]))
+    signal_matrix[:] = np.NaN
+
+    traces_for_testing = zip(np.split(new_position, data["trace_cut_index"]),
+                             np.split(signal_norm, data["trace_cut_index"]))
+    i = 0
+    for position, signal in traces_for_testing:
+        # Numpy's interpolation method needs sorted, strictly increasing values
+        signal = signal[np.argsort(position)]
+        position = position[np.argsort(position)]
+        # Since it needs to be strictly increasing, keep only values where x is strictly increasing.
+        # Ignore any other y value when it has the same x value.
+        signal = np.append(signal[0], signal[1:][(np.diff(position) > 0)])
+        position = np.append(position[0], position[1:][(np.diff(position) > 0)])
+
+        signal = np.interp(interpolated_delay, position, signal)
+        signal_matrix[:, i] = signal
+        if not consider_all_traces and i > 100:
+            break
+        i += 1
+    config.logger.info(f"Delay:\t{delay[0]:.3f}\tError:\t{np.sum(np.nanstd(signal_matrix, axis=1))}")
+    return np.sum(np.nanstd(signal_matrix, axis=1))
+
+
+def shift_position(data, original_time, position_interpolated):
+    config.logger.info(
+        f"Found optimal delay_value {EngFormatter('Sa', places=3)(data['delay_value'])}, corresponding to a time delay of {EngFormatter('s')(data['delay_value'] * data['dt'])}.")
+    new_time_axis = data["delay_value"] * data["dt"] + np.copy(original_time)
+    data["position"] = position_interpolated(new_time_axis)
+    data["signal"] = data["signal"][~np.isnan(data["position"])]
+    data["position"] = data["position"][~np.isnan(data["position"])]
+
+
+def butter_filter(data, fs, lowcut=None, highcut=None, order=5):
+    sos = _butter_coeff(fs, lowcut, highcut, order=order)
+    y = sosfiltfilt(sos, data, padtype=None)
+    return y
+
+
+def _butter_coeff(fs, lowcut=None, highcut=None, order=None):
+    """Create coefficients for a butterworth filter."""
+    nyq = 0.5 * fs
+    if highcut > nyq:
+        config.logger.info(
+            f"{EngFormatter('Hz')(highcut)} > Nyquist-frequency ({EngFormatter('Hz')(nyq)}), "
+            "ignoring parameter.")
+        highcut = None
+    if lowcut is not None and highcut is not None:
+        # Bandpass filter
+        if lowcut > highcut:
+            raise ValueError(
+                f"Lowcut is bigger than highcut! {EngFormatter('Hz')(lowcut)} > {EngFormatter('Hz')(nyq)}")
+        low = lowcut / nyq
+        high = highcut / nyq
+        sos = butter(order, [low, high], analog=False, btype='band', output='sos')
+    elif highcut is not None:
+        # Low pass filter
+        low = highcut / nyq
+        sos = butter(order, low, analog=False, btype='low', output='sos')
+    elif lowcut is not None:
+        # High pass filter
+        high = lowcut / nyq
+        sos = butter(order, high, analog=False, btype='high', output='sos')
+    else:
+        raise NotImplementedError("Lowcut and highcut need to be specified either with a frequency or 'None'.")
+    return sos
