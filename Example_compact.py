@@ -30,5 +30,5 @@ data = parrot.post_process_data.correct_systematic_errors(data)
 data = parrot.post_process_data.window(data)
 data = parrot.post_process_data.pad_zeros(data)
 
-parrot.plot.plot_simple_multi_cycle(data)
+parrot.plot.simple_multi_cycle(data)
 plt.show(block=True)

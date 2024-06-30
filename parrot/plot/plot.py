@@ -24,13 +24,13 @@ def cumulated_mean_fft(data):
     return frequency, matrix
 
 
-def plot_full_multi_cycle(data,
-                          min_THz_frequency=0e12,
-                          max_THz_frequency=10e12,
-                          threshold_dB=10,
-                          figsize=None,
-                          snr_timedomain=False,
-                          water_absorption_lines=True):
+def extended_multi_cycle(data,
+                         min_THz_frequency=0e12,
+                         max_THz_frequency=10e12,
+                         threshold_dB=10,
+                         figsize=None,
+                         snr_timedomain=False,
+                         water_absorption_lines=True):
     if figsize is None:
         figsize = (12, 8)
     fig, ax = plt.subplots(nrows=1, ncols=3, figsize=figsize)
@@ -175,13 +175,13 @@ def plot_full_multi_cycle(data,
     plt.show(block=False)
 
 
-def plot_simple_multi_cycle(data,
-                            min_THz_frequency=0e12,
-                            max_THz_frequency=10e12,
-                            threshold_dB=10,
-                            figsize=None,
-                            water_absorption_lines=True,
-                            debug=False):
+def simple_multi_cycle(data,
+                       min_THz_frequency=0e12,
+                       max_THz_frequency=10e12,
+                       threshold_dB=10,
+                       figsize=None,
+                       water_absorption_lines=True,
+                       debug=False):
     if debug:
         config.set_debug(True)
     else:
