@@ -6,7 +6,7 @@ signal) and retrieves an averaged, high quality THz trace with access to interpo
 further
 statistics.
 
-To achieve this goal, parrot is divided into three main classes:
+To achieve this goal, parrot is divided into three main modules:
 
 1. [Load](./load.md)
 
@@ -14,7 +14,7 @@ To achieve this goal, parrot is divided into three main classes:
 
 3. [Plot](./plot.md)
 
-You can also find the corresponding documentation for each class also in the header above.
+You can also find the corresponding documentation for each module also in the header above.
 
 The program is released as Free and Open Source Software (FOSS), written by Tim Vogel at the Photonics and Ultrafast
 Laser Science (PULS) group at the Ruhr-University Bochum, Germany.

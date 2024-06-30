@@ -1,8 +1,8 @@
 # Process
 
-This page discusses aspects concerning the `Process` class of parrot.
+This page discusses aspects concerning the `process` module of parrot.
 
-## Objective of the class
+## Objective of the module
 
 Continuously recorded raw data containing several cycles of a sinusoidal delay line with the corresponding THz traces
 are processed.
@@ -19,7 +19,7 @@ the dynamic range (DR) and signal-to-noise ratio (SNR) of the traces.
 As with the other classes, a logger is started which collects messages at various places in the program. There are
 multiple log-levels and the standard is the log-level `WARNING`, to not flood the print-out with too many messages when
 analyzing multiple files.
-By setting `parrot.PrepareData(debug=True)`, the log-level is reduced to `INFO` and, as the name implies, more
+By setting `parrot.config.set_debug(True)`, the log-level is reduced to `INFO` and, as the name implies, more
 information are given what the program is doing, which is in particular helpful when analyzing a single file.
 
 Prepare data splits the process in multiple steps, which are discussed in the following:
