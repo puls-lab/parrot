@@ -1,4 +1,4 @@
-# Getting started with parrot :parrot:
+# Getting started with parrot
 
 parrot is designed to process continuously recorded THz traces from a THz-TDS.
 parrot can process the raw, continuous measurement data (consisting of time, position of the delay stage, and the THz

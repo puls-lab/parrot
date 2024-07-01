@@ -87,6 +87,10 @@ def extended_multi_cycle(data,
     # Second subplot, frequency-domain
     data = post_process_data.get_statistics(data, min_THz_frequency, max_THz_frequency, threshold_dB)
     # Prepare data, for an accumulated mean fo all single-traces calculate the FFT and dynamic range
+    if "window" not in data["applied_functions"]:
+        config.logger.warn("It seems that you did not apply a window function to the data, "
+                           "which will result in artifacts when using FFT."
+                           "Please use `data = parrot.post_process_data.window(data)` before plotting.")
     frequency_dark, matrix_dark_fft = cumulated_mean_fft(data["dark"])
     frequency_light, matrix_light_fft = cumulated_mean_fft(data["light"])
     filter_frequency = (frequency_dark >= data["statistics"]["bandwidth_start"]) & (
@@ -240,6 +244,10 @@ def simple_multi_cycle(data,
                                             max_THz_frequency=max_THz_frequency,
                                             threshold_dB=threshold_dB)
     # Prepare data, for an accumulated mean fo all single-traces calculate the FFT and dynamic range
+    if "window" not in data["applied_functions"]:
+        config.logger.warn("It seems that you did not apply a window function to the data, "
+                           "which will result in artifacts when using FFT."
+                           "Please use `data = parrot.post_process_data.window(data)` before plotting.")
     frequency_dark, dark_fft = calc_fft(data["dark"]["light_time"], data["dark"]["average"]["time_domain"])
     frequency_light, light_fft = calc_fft(data["light"]["light_time"], data["light"]["average"]["time_domain"])
     filter_frequency_dark = (frequency_dark >= data["statistics"]["bandwidth_start"]) & (
