@@ -97,6 +97,9 @@ def pad_zeros(data, new_frequency_resolution=5e9, min_test_exponent=6, max_test_
             matrix = np.zeros((len(new_time), data[mode]["single_traces"].shape[1]))
             matrix[:len(current_time), :] = data[mode]["single_traces"]
             data[mode]["single_traces"] = matrix
+            frequency, signal_fft = _calc_fft(data[mode]["light_time"], data[mode]["average"]["time_domain"])
+            data[mode]["frequency"] = frequency
+            data[mode]["average"]["frequency_domain"] = signal_fft
         data["applied_functions"].append("pad_zeros")
     else:
         raise NotImplementedError("You need to first window the data before padding zeros.")
@@ -213,7 +216,7 @@ def correct_gain_in_spectrum(data):
         single_traces = np.fft.rfft(data[mode]["single_traces"], axis=0).T
         single_traces = single_traces * smooth_gain
         data[mode]["single_traces"] = np.fft.irfft(single_traces.T, axis=0,
-                                                   n=len(data[mode]["average"]["time_domain"])).T
+                                                   n=len(data[mode]["average"]["time_domain"]))
     data["applied_functions"].append("correct_gain_in_spectrum")
     return data
 

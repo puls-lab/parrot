@@ -115,11 +115,11 @@ def extended_multi_cycle(data,
         # Select a temporary subset of the dataframe, first dark
         filter_frequency = (frequency_dark >= data["statistics"]["bandwidth_start"]) & (
                 frequency_dark <= data["statistics"]["bandwidth_stop"])
-        frequency, signal_fft = frequency_dark[filter_frequency], matrix_dark_fft[i, :][filter_frequency]
+        frequency, signal_fft = frequency_dark[filter_frequency], matrix_dark_fft[i - 1, :][filter_frequency]
         dark_norm = np.mean(np.abs(signal_fft) ** 2)
         # Then light
         filter_frequency = (frequency_light >= min_THz_frequency) & (frequency_light <= max_THz_frequency)
-        frequency, signal_fft = frequency_light[filter_frequency], matrix_light_fft[i, :][filter_frequency]
+        frequency, signal_fft = frequency_light[filter_frequency], matrix_light_fft[i - 1, :][filter_frequency]
         if i == 1:
             label_str = f"{i} THz trace"
         else:

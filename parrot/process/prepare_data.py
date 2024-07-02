@@ -118,6 +118,7 @@ def run(data,
             ax[0].yaxis.set_major_formatter(EngFormatter(unit='V'))
             ax[0].set_title('Signal vs. Delay without time delay compensation')
         original_time = np.arange(0, data["dt"] * len(data["position"]), data["dt"])
+        original_time = original_time[:data["position"].size]
         position_interpolated = interp.interp1d(original_time,
                                                 data["position"],
                                                 bounds_error=False,

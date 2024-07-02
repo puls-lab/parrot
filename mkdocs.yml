@@ -1,4 +1,4 @@
-site_name: parrot documentation
+site_name: Documentation of parrot
 theme:
   name: material
   features:

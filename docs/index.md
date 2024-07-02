@@ -1,10 +1,13 @@
-# Getting started with parrot :parrot:
+# Getting started with *parrot*
 
-parrot is designed to process continuously recorded THz traces from a THz-TDS.
-parrot can process the raw, continuous measurement data (consisting of time, position of the delay stage, and the THz
+*parrot* is designed to process continuously recorded THz traces from a THz-TDS.
+*parrot* can process the raw, continuous measurement data (consisting of time, position of the delay stage, and the THz
 signal) and retrieves an averaged, high quality THz trace with access to interpolated individual traces as well as
 further
 statistics.
+
+See the jupyter notebook `example.ipynb`, `example_compact.ipynb`, and python file `example.py` in the root directory,
+which show step-by-step how *parrot* can be used.
 
 To achieve this goal, parrot is divided into three main modules:
 
