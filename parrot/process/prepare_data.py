@@ -11,7 +11,7 @@ from matplotlib.ticker import EngFormatter
 # TODO: Delete time later
 import time
 from ..config import config
-
+from ..plot import plot
 
 def run(data,
         scale=None,
@@ -25,6 +25,7 @@ def run(data,
         lowcut_signal=1,
         highcut_signal=None,
         consider_all_traces=False,
+        dataset_name=None,
         debug=False):
     if debug:
         config.set_debug(True)
@@ -38,6 +39,8 @@ def run(data,
 
     # Timestep in lab time
     data["dt"] = (data["time"][-1] - data["time"][0]) / (len(data["time"]) - 1)
+    if debug and dataset_name == "light":
+        fig, ax = plot.debug_lab_time_raw(data)
     if filter_position:
         data["position"] = butter_filter(data["position"],
                                          1 / data["dt"],
@@ -68,25 +71,23 @@ def run(data,
         elif lowcut_signal is not None and highcut_signal is not None:
             config.logger.info(
                 f"Signal data is low- and high-pass filtered with [{EngFormatter('Hz')(lowcut_signal)}, {EngFormatter('Hz')(highcut_signal)}].")
+    if filter_signal:
         data = resample_data(data, max_thz_frequency)
     if recording_type == "single_cycle":
         if np.argmin(data["position"]) - np.argmax(data["position"]) < 0:
             # Either first minimum, then maximum
-            idx = np.array([np.argmin(data["position"]), np.argmax(data["position"])])
+            data["trace_cut_index"] = np.array([np.argmin(data["position"]), np.argmax(data["position"])])
         else:
             # Otherwise, first maximum, then minimum
-            idx = np.array([np.argmax(data["position"]), np.argmin(data["position"])])
+            data["trace_cut_index"] = np.array([np.argmax(data["position"]), np.argmin(data["position"])])
     else:
         # Get the peaks of the sinusoid (or similar) of the position data, then we know the number of traces
-        data["trace_cut_index"] = get_multiple_index(data, filter_position, highcut_position)
+        data = get_multiple_index(data, filter_position, highcut_position)
+    if debug and dataset_name == "light":
+        fig, ax = plot.debug_lab_time_filtered(data, lowcut_position, highcut_position, lowcut_signal, highcut_signal,
+                                               fig, ax)
+        fig2, ax2 = plot.debug_position_cut(data, dataset_name)
     data = cut_incomplete_traces(data)
-    if debug:
-        fig, ax = plt.subplots()
-        ax.plot(data["position"])
-        [ax.axvline(x, color="black", alpha=0.8) for x in data["trace_cut_index"]]
-        ax.set_xlabel("Time sample")
-        ax.set_ylabel("Voltage")
-        ax.grid(True)
     for exponent in range(6, 20):
         if 0.5 * (2 ** exponent / data["thz_recording_length"]) > max_thz_frequency:
             data["interpolation_resolution"] = 2 ** exponent
@@ -100,53 +101,26 @@ def run(data,
                          "Did you select the right scale [ps/V] and the right max_THz_frequency?")
     # If we recorded multiple forward/backward traces, we can calculate the delay between position and signal.
     if recording_type == "multi_cycle":
-        # Get timedelay between position and signal
-        if debug:
-            fig, ax = plt.subplots(nrows=2, ncols=1, sharex=True, sharey=True)
-            split_pos = np.split(data["position"], data["trace_cut_index"])
-            split_sig = np.split(data["signal"], data["trace_cut_index"])
-            for i in range(1, 10):
-                if i % 2:
-                    ax[0].plot(data["scale"] * split_pos[i],
-                               split_sig[i],
-                               color="tab:blue", alpha=0.8)
-                else:
-                    ax[0].plot(data["scale"] * split_pos[i],
-                               split_sig[i],
-                               color="tab:orange", alpha=0.8)
-            ax[0].xaxis.set_major_formatter(EngFormatter(unit='s'))
-            ax[0].yaxis.set_major_formatter(EngFormatter(unit='V'))
-            ax[0].set_title('Signal vs. Delay without time delay compensation')
         original_time = np.arange(0, data["dt"] * len(data["position"]), data["dt"])
         original_time = original_time[:data["position"].size]
         position_interpolated = interp.interp1d(original_time,
                                                 data["position"],
                                                 bounds_error=False,
                                                 fill_value=np.nan)
+        interpolated_delay = np.linspace(0, 1, data["interpolation_resolution"])
+        data["light_time"] = interpolated_delay * data["thz_recording_length"] + data["thz_start_offset"]
+        # Get timedelay between position and signal
+        if debug and dataset_name == "light":
+            fig3, ax3 = plot.debug_no_delay_compensation(data, original_time, position_interpolated, interpolated_delay,
+                                                         consider_all_traces)
         if data["delay_value"] is None:
             config.logger.info(
                 f"No delay_value provided, searching now for optimal delay:")
             data["delay_value"] = get_delay(data, original_time, position_interpolated, consider_all_traces, debug)
         shift_position(data, original_time, position_interpolated)
-        if debug:
-            split_pos = np.split(data["position"], data["trace_cut_index"])
-            split_sig = np.split(data["signal"], data["trace_cut_index"])
-            for i in range(1, 10):
-                if i % 2:
-                    ax[1].plot(data["scale"] * split_pos[i],
-                               split_sig[i],
-                               color="tab:blue", alpha=0.8)
-                else:
-                    ax[1].plot(data["scale"] * split_pos[i],
-                               split_sig[i],
-                               color="tab:orange", alpha=0.8)
-            ax[1].xaxis.set_major_formatter(EngFormatter(unit='s'))
-            ax[1].yaxis.set_major_formatter(EngFormatter(unit='V'))
-            delay_amount = data["delay_value"] * data["dt"]
-            ax[1].set_title(
-                f'Signal vs. Delay with {data["delay_value"]} samples ' +
-                f'({EngFormatter("s", places=1)(delay_amount)}) time delay compensation')
-            plt.tight_layout()
+        if debug and dataset_name == "light":
+            fig3, ax3 = plot.debug_with_delay_compensation(data, position_interpolated, interpolated_delay,
+                                                           consider_all_traces, dataset_name, fig3, ax3)
     return data
 
 
@@ -201,7 +175,9 @@ def get_multiple_index(data, filter_position, highcut_position):
     idx, _ = find_peaks(np.abs(position),
                         height=0.8 * np.max(np.abs(position)),
                         distance=round(0.9 * (1 / guess_freq) / data["dt"]))
-    return idx
+    data["trace_cut_index"] = idx
+    data["number_of_traces"] = len(data["trace_cut_index"]) + 1
+    return data
 
 
 def cut_incomplete_traces(data):
@@ -216,7 +192,7 @@ def cut_incomplete_traces(data):
 def get_delay(data, original_time, position_interpolated, consider_all_traces, debug=False):
     interpolated_delay = np.linspace(0, 1, data["interpolation_resolution"])
     x0 = [0]
-    init_simplex = np.array([0, 10]).reshape(2, 1)
+    init_simplex = np.array([0, 50]).reshape(2, 1)
     xatol = 0.1
     res = minimize(_minimize,
                    x0,

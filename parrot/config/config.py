@@ -1,13 +1,51 @@
+import sys
 import logging
+from typing import Optional, Dict
 
-logger = logging.getLogger(__name__)
-logger.handlers.clear()
+from colorama import Fore, Back, Style
 
-formatter = logging.Formatter("[%(levelname)s] %(message)s")
 
-stream_handler = logging.StreamHandler()
-stream_handler.setFormatter(formatter)
-logger.addHandler(stream_handler)
+class ColoredFormatter(logging.Formatter):
+    """Colored log formatter.
+    Taken from github-user: joshbode
+    Source: https://gist.github.com/joshbode/58fac7ababc700f51e2a9ecdebe563ad
+    """
+
+    def __init__(self, *args, colors: Optional[Dict[str, str]] = None, **kwargs) -> None:
+        """Initialize the formatter with specified format strings."""
+
+        super().__init__(*args, **kwargs)
+
+        self.colors = colors if colors else {}
+
+    def format(self, record) -> str:
+        """Format the specified record as text."""
+
+        record.color = self.colors.get(record.levelname, '')
+        record.reset = Style.RESET_ALL
+
+        return super().format(record)
+
+
+formatter = ColoredFormatter(
+    '{color}[{levelname}] {message}{reset}',
+    style='{', datefmt='%Y-%m-%d %H:%M:%S',
+    colors={
+        'DEBUG': Fore.CYAN,
+        'INFO': Fore.GREEN,
+        'WARNING': Fore.YELLOW,
+        'ERROR': Fore.RED,
+        'CRITICAL': Fore.RED + Back.WHITE + Style.BRIGHT,
+    }
+)
+
+handler = logging.StreamHandler(sys.stdout)
+handler.setFormatter(formatter)
+
+logger = logging.getLogger()
+logger.handlers[:] = []
+logger.addHandler(handler)
+logger.setLevel(logging.INFO)
 
 
 def set_debug(DEBUG=False):

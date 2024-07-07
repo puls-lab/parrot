@@ -70,13 +70,16 @@ def thz_and_dark(light, dark, recording_type="multi_cycle", **kwargs):
         raw_data[mode] = {"time": data["time"],
                           "position": data["position"],
                           "signal": data["signal"]}
-    data = {"light": prepare_data.run(raw_data["light"], recording_type=recording_type, **kwargs),
+    data = {"light": prepare_data.run(raw_data["light"], recording_type=recording_type, dataset_name="light", **kwargs),
             "dark": {}}
     if 'delay_value' in kwargs:
-        data["dark"] = prepare_data.run(raw_data["dark"], recording_type=recording_type, **kwargs)
+        data["dark"] = prepare_data.run(raw_data["dark"], recording_type=recording_type, dataset_name="dark", **kwargs)
     else:
-        data["dark"] = prepare_data.run(raw_data["dark"], recording_type=recording_type,
-                                        delay_value=data["light"]["delay_value"], **kwargs)
+        data["dark"] = prepare_data.run(raw_data["dark"],
+                                        recording_type=recording_type,
+                                        dataset_name="dark",
+                                        delay_value=data["light"]["delay_value"],
+                                        **kwargs)
     for mode in ["light", "dark"]:
         data[mode] = normalize_and_process(data[mode])
         frequency, signal_fft = _calc_fft(data[mode]["light_time"], data[mode]["average"]["time_domain"])
@@ -92,17 +95,23 @@ def thz_and_two_darks(light, dark1, dark2, recording_type="multi_cycle", **kwarg
         raw_data[mode] = {"time": data["time"],
                           "position": data["position"],
                           "signal": data["signal"]}
-    data = {"light": prepare_data.run(raw_data["light"], recording_type=recording_type, **kwargs),
+    data = {"light": prepare_data.run(raw_data["light"], recording_type=recording_type, dataset_name="light", **kwargs),
             "dark1": {},
             "dark2": {}}
     if 'delay_value' in kwargs:
-        data["dark1"] = prepare_data.run(raw_data["dark1"], recording_type=recording_type, **kwargs)
-        data["dark2"] = prepare_data.run(raw_data["dark2"], recording_type=recording_type, **kwargs)
+        data["dark1"] = prepare_data.run(raw_data["dark1"], recording_type=recording_type, dataset_name="dark1",
+                                         **kwargs)
+        data["dark2"] = prepare_data.run(raw_data["dark2"], recording_type=recording_type, dataset_name="dark2",
+                                         **kwargs)
     else:
-        data["dark1"] = prepare_data.run(raw_data["dark1"], recording_type=recording_type,
+        data["dark1"] = prepare_data.run(raw_data["dark1"],
+                                         recording_type=recording_type,
+                                         dataset_name="dark1",
                                          delay_value=data["light"]["delay_value"],
                                          **kwargs)
-        data["dark2"] = prepare_data.run(raw_data["dark2"], recording_type=recording_type,
+        data["dark2"] = prepare_data.run(raw_data["dark2"],
+                                         recording_type=recording_type,
+                                         dataset_name="dark2",
                                          delay_value=data["light"]["delay_value"],
                                          **kwargs)
     for mode in ["light", "dark1", "dark2"]:
@@ -118,7 +127,7 @@ def thz_only(light, recording_type="multi_cycle", **kwargs):
     raw_data = {"light": {"time": light["time"],
                           "position": light["position"],
                           "signal": light["signal"]}}
-    data = {"light": prepare_data.run(raw_data["light"], recording_type=recording_type, **kwargs)}
+    data = {"light": prepare_data.run(raw_data["light"], recording_type=recording_type, dataset_name="light", **kwargs)}
     data["light"] = normalize_and_process(data["light"])
     frequency, signal_fft = _calc_fft(data["light"]["light_time"], data["light"]["average"]["time_domain"])
     data["light"]["frequency"] = frequency
@@ -131,7 +140,7 @@ def dark_only(dark, recording_type="multi_cycle", **kwargs):
     raw_data = {"dark": {"time": dark["time"],
                          "position": dark["position"],
                          "signal": dark["signal"]}}
-    data = {"dark": prepare_data.run(raw_data["dark"], recording_type=recording_type, **kwargs)}
+    data = {"dark": prepare_data.run(raw_data["dark"], recording_type=recording_type, dataset_name="dark", **kwargs)}
     data["dark"] = normalize_and_process(data["dark"])
     frequency, signal_fft = _calc_fft(data["dark"]["light_time"], data["dark"]["average"]["time_domain"])
     data["dark"]["frequency"] = frequency

@@ -328,3 +328,175 @@ def simple_multi_cycle(data,
     fig.suptitle(fig_title)
     plt.tight_layout()
     plt.show(block=False)
+
+
+def debug_lab_time_raw(data):
+    fig, ax = plt.subplots(nrows=2, ncols=1, sharex=True)
+    ax[0].plot(data["time"], data["position"], label="Position, raw")
+    ax[1].plot(data["time"], data["signal"], label="Signal, raw")
+    return fig, ax
+
+
+def debug_lab_time_filtered(data, lowcut_position, highcut_position, lowcut_signal, highcut_signal, fig, ax):
+    my_label = "Position, filtered\n"
+    if lowcut_position is not None:
+        my_label += f"High-pass: {EngFormatter('Hz')(lowcut_position)}\n"
+    if highcut_position is not None:
+        my_label += f"Low-pass: {EngFormatter('Hz')(highcut_position)}\n"
+    my_label = my_label[:-1]
+    if lowcut_position is None and highcut_position is None:
+        my_label = "Position, untouched"
+    ax[0].plot(data["time"], data["position"], label=my_label)
+
+    my_label = "Signal, filtered\n"
+    if lowcut_signal is not None:
+        my_label += f"High-pass: {EngFormatter('Hz')(lowcut_signal)}\n"
+    if highcut_signal is not None:
+        my_label += f"Low-pass: {EngFormatter('Hz')(highcut_signal)}\n"
+    my_label = my_label[:-1]
+    if lowcut_signal is None and highcut_signal is None:
+        my_label = "Signal, untouched"
+    ax[1].plot(data["time"], data["signal"], label=my_label)
+
+    ax[0].xaxis.set_major_formatter(EngFormatter(unit='s'))
+    ax[0].yaxis.set_major_formatter(EngFormatter(unit='V'))
+    ax[1].yaxis.set_major_formatter(EngFormatter(unit='V'))
+    ax[0].legend(loc="upper right")
+    ax[1].legend(loc="upper right")
+    ax[0].grid(True)
+    ax[1].grid(True)
+    ax[0].set_title("Filtering of position and signal")
+    ax[1].set_xlabel("Lab time")
+    if data["number_of_traces"] > 10:
+        ax[0].set_xlim([0, data["time"][data["trace_cut_index"][10]]])
+    plt.tight_layout()
+    plt.show(block=False)
+    return fig, ax
+
+
+def debug_position_cut(data, dataset_name):
+    fig, ax = plt.subplots()
+    ax.plot(data["position"], label="Position")
+    [ax.axvline(x, color="black", alpha=0.8) for x in data["trace_cut_index"]]
+    ax.axvline(np.nan, color="black", alpha=0.8, label="Cut index")
+    ax.legend(loc="upper right")
+    if data["number_of_traces"] > 10:
+        # If more than 10 single traces are detected, restrict x-axis to only show first ten,
+        # or you get a wall of vertical lines indicating the extrema of the positional data
+        ax.set_xlim([0, data["trace_cut_index"][10]])
+    if dataset_name is None:
+        ax.set_title(f"Cutting dataset into single traces")
+    else:
+        # If name of dataset like "light", "dark1", etc. are given, place it into the axis title.
+        ax.set_title(f"Cutting {dataset_name} dataset into single traces")
+    ax.set_xlabel("Time samples")
+    ax.set_ylabel("Position")
+    ax.yaxis.set_major_formatter(EngFormatter("V"))
+    ax.grid(True)
+    plt.tight_layout()
+    plt.show(block=False)
+    return fig, ax
+
+
+def debug_no_delay_compensation(data, original_time, position_interpolated, interpolated_delay, consider_all_traces):
+    fig, ax = plt.subplots(nrows=3, ncols=1, sharex=True)
+    split_pos = np.split(data["position"], data["trace_cut_index"])
+    split_sig = np.split(data["signal"], data["trace_cut_index"])
+    for i in range(1, 10):
+        if i % 2:
+            ax[0].plot(data["scale"] * split_pos[i],
+                       split_sig[i],
+                       color="tab:blue", alpha=0.8)
+        else:
+            ax[0].plot(data["scale"] * split_pos[i],
+                       split_sig[i],
+                       color="tab:orange", alpha=0.8)
+    ax[0].plot([], [], color="tab:blue", alpha=0.8, label="Signal forward")
+    ax[0].plot([], [], color="tab:orange", alpha=0.8, label="Signal backward")
+    ax[0].xaxis.set_major_formatter(EngFormatter(unit='s'))
+    ax[0].yaxis.set_major_formatter(EngFormatter(unit='V'))
+    ax[0].set_title('Delay = 0 Sa')
+    ax[0].legend(loc="upper right")
+
+    # Calculate STD when no delay correction is applied
+    new_position = position_interpolated(original_time)
+    new_position = (new_position - np.nanmin(new_position)) / (np.nanmax(new_position) - np.nanmin(new_position))
+    signal_matrix = np.zeros((data["interpolation_resolution"], data["number_of_traces"]))
+    signal_matrix[:] = np.NaN
+
+    i = 0
+    for position, signal in zip(np.split(new_position, data["trace_cut_index"]), split_sig):
+        # Numpy's interpolation method needs sorted, strictly increasing values
+        signal = signal[np.argsort(position)]
+        position = position[np.argsort(position)]
+        # Since it needs to be strictly increasing, keep only values where x is strictly increasing.
+        # Ignore any other y value when it has the same x value.
+        signal = np.append(signal[0], signal[1:][(np.diff(position) > 0)])
+        position = np.append(position[0], position[1:][(np.diff(position) > 0)])
+
+        signal = np.interp(interpolated_delay, position, signal)
+        signal_matrix[:, i] = signal
+        if not consider_all_traces and i > 100:
+            break
+        i += 1
+
+    ax[2].semilogy(data["light_time"], np.nanstd(signal_matrix, axis=1), color="black", label="Delay = 0 Sa")
+    return fig, ax
+
+
+def debug_with_delay_compensation(data, position_interpolated, interpolated_delay, consider_all_traces, dataset_name,
+                                  fig, ax):
+    split_pos = np.split(data["position"], data["trace_cut_index"])
+    split_sig = np.split(data["signal"], data["trace_cut_index"])
+    for i in range(1, 10):
+        if i % 2:
+            ax[1].plot(data["scale"] * split_pos[i],
+                       split_sig[i],
+                       color="tab:blue", alpha=0.8)
+        else:
+            ax[1].plot(data["scale"] * split_pos[i],
+                       split_sig[i],
+                       color="tab:orange", alpha=0.8)
+    ax[1].xaxis.set_major_formatter(EngFormatter(unit='s'))
+    ax[1].yaxis.set_major_formatter(EngFormatter(unit='V'))
+    ax[1].plot([], [], color="tab:blue", alpha=0.8, label="Signal forward")
+    ax[1].plot([], [], color="tab:orange", alpha=0.8, label="Signal backward")
+    delay_amount = data["delay_value"] * data["dt"]
+    ax[1].set_title(
+        f'Delay = {data["delay_value"]:.3f} Sa ' +
+        f'({EngFormatter("s", places=1)(delay_amount)}) time delay compensation')
+    ax[1].legend(loc="upper right")
+
+    # Calculate STD when delay correction is applied
+    new_position = data["position"]
+    new_position = (new_position - np.nanmin(new_position)) / (np.nanmax(new_position) - np.nanmin(new_position))
+    signal_matrix = np.zeros((data["interpolation_resolution"], data["number_of_traces"]))
+    signal_matrix[:] = np.NaN
+    i = 0
+    for position, signal in zip(np.split(new_position, data["trace_cut_index"]), split_sig):
+        # Numpy's interpolation method needs sorted, strictly increasing values
+        signal = signal[np.argsort(position)]
+        position = position[np.argsort(position)]
+        # Since it needs to be strictly increasing, keep only values where x is strictly increasing.
+        # Ignore any other y value when it has the same x value.
+        signal = np.append(signal[0], signal[1:][(np.diff(position) > 0)])
+        position = np.append(position[0], position[1:][(np.diff(position) > 0)])
+
+        signal = np.interp(interpolated_delay, position, signal)
+        signal_matrix[:, i] = signal
+        if not consider_all_traces and i > 100:
+            break
+        i += 1
+    ax[2].semilogy(data["light_time"], np.nanstd(signal_matrix, axis=1), color="tab:green",
+                   label=f"Delay = {data['delay_value']:.3f} Sa")
+    ax[2].legend(loc="upper right")
+    ax[2].grid(True, which="both")
+    ax[2].yaxis.set_major_formatter(EngFormatter("V"))
+    if dataset_name is None:
+        ax[2].set_title(f"Standard deviation")
+    else:
+        ax[2].set_title(f"Standard deviation of dataset {dataset_name}")
+    ax[2].set_xlabel("Light time")
+    plt.tight_layout()
+    plt.show(block=False)
+    return fig, ax
