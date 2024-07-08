@@ -70,7 +70,7 @@ However, resampling the data is a bit tricky because we have the sampling time i
 time is the smallest max. THz frequency.
 
 ```py
-max_native_frequency = 1 / (np.max(np.gradient(self.data["position"], self.dt)) * self.data["scale"] * self.dt)
+max_native_frequency = 1 / (np.max(np.gradient(data["position"], dt)) * data["scale"] * dt)
 ```
 
 where `self.dt` is the time step of the raw data (inverse of the sampling rate), `self.data["scale"]` is the scale to

@@ -182,6 +182,7 @@ def get_multiple_index(data, filter_position, highcut_position):
 
 def cut_incomplete_traces(data):
     """Cut any incomplete trace from the array before the first delay peak or after the last delay peak"""
+    data["time"] = data["time"][data["trace_cut_index"][0]:data["trace_cut_index"][-1]]
     data["position"] = data["position"][data["trace_cut_index"][0]:data["trace_cut_index"][-1]]
     data["signal"] = data["signal"][data["trace_cut_index"][0]:data["trace_cut_index"][-1]]
     data["trace_cut_index"] = data["trace_cut_index"][1:-1] - data["trace_cut_index"][0]

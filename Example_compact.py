@@ -31,4 +31,12 @@ data = parrot.post_process_data.window(data)
 data = parrot.post_process_data.pad_zeros(data)
 
 parrot.plot.simple_multi_cycle(data)
+from matplotlib.ticker import EngFormatter
+fig, ax = plt.subplots()
+ax.plot(data["light"]["time"], data["light"]["position"])
+ax2 = ax.twinx()
+ax.plot(data["light"]["time"], data["light"]["signal"], color="tab:orange")
+ax.grid(True)
+ax.xaxis.set_major_formatter(EngFormatter("s"))
+ax.set_xlim([0,0.2])
 plt.show(block=True)
