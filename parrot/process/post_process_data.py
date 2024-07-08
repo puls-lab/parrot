@@ -59,12 +59,12 @@ def window(data, name="tukey", **kwargs):
                 raise NotImplementedError("Could not find specified window function.")
         data[mode]["single_traces"] *= window.reshape(-1, 1)
         data[mode]["average"]["time_domain"] *= window
-    data["applied_functions"].append("window")
+    data["applied_functions"].append(f"window_{name}")
     return data
 
 
 def pad_zeros(data, new_frequency_resolution=5e9, min_test_exponent=6, max_test_exponent=21):
-    if "window" in data["applied_functions"]:
+    if any(item.startswith("window") for item in data["applied_functions"]):
         allowed_modes = set(["light", "dark1", "dark2", "dark"])
         modes = [x for x in data.keys() if x in allowed_modes]
         for mode in modes:
@@ -127,7 +127,7 @@ def cut_data(data, time_start=None, time_stop=None):
 
 
 def subtract_polynomial(data, order=2):
-    if "window" in data["applied_functions"]:
+    if any(item.startswith("window") for item in data["applied_functions"]):
         raise NotImplementedError("You already applied a window to the data, "
                                   "you first have to subtract a polynomial and then apply a window.")
     elif "FFT" in data["applied_functions"]:
@@ -153,7 +153,7 @@ def subtract_polynomial(data, order=2):
 
 def correct_systematic_errors(data):
     # This only works when two dark traces were recorded with the same settings as with the light trace
-    if "window" in data["applied_functions"]:
+    if any(item.startswith("window") for item in data["applied_functions"]):
         raise NotImplementedError("You already applied a window to the data, "
                                   "you first have to correct for systematic errors and then apply a window.")
     elif "FFT" in data["applied_functions"]:

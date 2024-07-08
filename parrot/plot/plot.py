@@ -33,7 +33,7 @@ def extended_multi_cycle(data,
                          water_absorption_lines=True):
     if figsize is None:
         figsize = (12, 8)
-    fig, ax = plt.subplots(nrows=1, ncols=3, figsize=figsize)
+    fig, ax = plt.subplots(nrows=3, ncols=1, figsize=figsize)
     # First subplot, time domain
     for mode in data.keys():
         if mode == "light":
@@ -45,18 +45,17 @@ def extended_multi_cycle(data,
         else:
             continue
         std_traces = np.std(data[mode]["single_traces"], axis=1)
-        ax[0].fill_between(data[mode]["light_time"],
-                           data[mode]["average"]["time_domain"] - std_traces,
-                           data[mode]["average"]["time_domain"] + std_traces,
-                           color=color,
-                           alpha=0.3,
-                           label="Standard deviation of dark traces")
-
         ax[0].plot(data[mode]["light_time"],
                    data[mode]["average"]["time_domain"],
                    color=color,
                    alpha=0.8,
                    label=f"Average of {data[mode]['number_of_traces']} {label_text} traces")
+        ax[0].fill_between(data[mode]["light_time"],
+                           data[mode]["average"]["time_domain"] - std_traces,
+                           data[mode]["average"]["time_domain"] + std_traces,
+                           color=color,
+                           alpha=0.3,
+                           label=f"Standard deviation of {label_text} traces")
     ax[0].grid(True)
     # If the data got artificially extended with zeros in timedomain,
     # we want to limit the x-axis in timedomain and just zoom-in on real data.
@@ -81,13 +80,14 @@ def extended_multi_cycle(data,
         ax[0].scatter([], [], c="tab:green", label=f'SNR, timedomain, max: {int(snr_timedomain_max)}')
     ax[0].legend(loc='upper right')
     ax[0].xaxis.set_major_formatter(EngFormatter(unit='s'))
-    ax[0].set_xlabel("Time")
+    ax[0].set_xlabel("Light time")
+    ax[0].set_ylabel("Amplitude")
     ax[0].yaxis.set_major_formatter(EngFormatter(unit='V'))
 
     # Second subplot, frequency-domain
     data = post_process_data.get_statistics(data, min_THz_frequency, max_THz_frequency, threshold_dB)
     # Prepare data, for an accumulated mean fo all single-traces calculate the FFT and dynamic range
-    if "window" not in data["applied_functions"]:
+    if not any(item.startswith("window") for item in data["applied_functions"]):
         config.logger.warn("It seems that you did not apply a window function to the data, "
                            "which will result in artifacts when using FFT."
                            "Please use `data = parrot.post_process_data.window(data)` before plotting.")
@@ -96,14 +96,15 @@ def extended_multi_cycle(data,
     filter_frequency = (frequency_dark >= data["statistics"]["bandwidth_start"]) & (
             frequency_dark <= data["statistics"]["bandwidth_stop"])
     dark_norm = np.mean(np.abs(matrix_dark_fft[-1, :][filter_frequency]) ** 2)
-    filter_frequency = (frequency_dark >= min_THz_frequency) & (frequency_dark <= max_THz_frequency)
-    ax[1].plot(frequency_dark[filter_frequency],
-               10 * np.log10(np.abs(matrix_dark_fft[-1, :][filter_frequency]) ** 2 / dark_norm),
-               color="black",
-               alpha=0.8,
-               label=f"{data['dark']['number_of_traces']} dark traces averaged")
+
     ax[1].axvline(data["statistics"]["bandwidth_start"], linestyle="--", color="black", alpha=0.5)
     ax[1].axvline(data["statistics"]["bandwidth_stop"], linestyle="--", color="black", alpha=0.5)
+    filter_frequency = (frequency_light >= min_THz_frequency) & (frequency_light <= max_THz_frequency)
+    frequency, signal_fft = frequency_light[filter_frequency], matrix_light_fft[-1, :][filter_frequency]
+    ax[1].plot(frequency, 10 * np.log10(np.abs(signal_fft) ** 2 / dark_norm),
+               color="tab:orange",
+               alpha=0.8,
+               label=f"{data['light']['number_of_traces']} averaged THz traces")
     # To not clutter the plot with too many curves, just plot an accumulated average of multiples of curves,
     # means:
     # If the dataframe contains 573 single THz traces,
@@ -114,8 +115,8 @@ def extended_multi_cycle(data,
                               ).astype(int)
 
     # Make the curves which contain less averaged spectra more transparent
-    alpha_values = np.arange(0.8 - 0.15 * len(trace_range), 1, 0.15)
-    for j, i in enumerate(trace_range):
+    alpha_values = np.arange(0.8 - 0.15 * len(trace_range), 1, 0.15)[::-1]
+    for j, i in enumerate(trace_range[::-1]):
         # Select a temporary subset of the dataframe, first dark
         filter_frequency = (frequency_dark >= data["statistics"]["bandwidth_start"]) & (
                 frequency_dark <= data["statistics"]["bandwidth_stop"])
@@ -132,16 +133,14 @@ def extended_multi_cycle(data,
                    color="tab:orange",
                    alpha=alpha_values[j],
                    label=label_str)
-    filter_frequency = (frequency_light >= min_THz_frequency) & (frequency_light <= max_THz_frequency)
-    frequency, signal_fft = frequency_light[filter_frequency], matrix_light_fft[-1, :][filter_frequency]
-    ax[1].plot(frequency, 10 * np.log10(np.abs(signal_fft) ** 2 / dark_norm),
-               color="tab:orange",
+    dark_norm = np.mean(np.abs(matrix_dark_fft[-1, :][filter_frequency]) ** 2)
+    filter_frequency = (frequency_dark >= min_THz_frequency) & (frequency_dark <= max_THz_frequency)
+    ax[1].plot(frequency_dark[filter_frequency],
+               10 * np.log10(np.abs(matrix_dark_fft[-1, :][filter_frequency]) ** 2 / dark_norm),
+               zorder=1.9,
+               color="black",
                alpha=0.8,
-               label=f"{data['light']['number_of_traces']} averaged THz traces")
-    ax[1].xaxis.set_major_formatter(EngFormatter(unit='Hz'))
-    ax[1].set_ylabel(r"Power spectrum [dB]")
-    ax[1].set_xlabel("Frequency")
-    ax[1].grid(True)
+               label=f"{data['dark']['number_of_traces']} dark traces averaged")
     if water_absorption_lines:
         script_path = Path(__file__).resolve().parent
         h2o = np.loadtxt(script_path / "WaterAbsorptionLines.csv", delimiter=",", skiprows=8)
@@ -155,9 +154,14 @@ def extended_multi_cycle(data,
                                                                                           "lines")
         [ax[1].axvline(_x, linewidth=1, color='tab:blue', alpha=alpha_values[i]) for i, _x in
          enumerate(h2o_sorted_freq[1:])]
+    ax[1].xaxis.set_major_formatter(EngFormatter(unit='Hz'))
+    ax[1].set_ylabel(r"Power spectrum (dB)")
+    ax[1].set_xlabel("Frequency")
+    ax[1].grid(True)
     ax[1].legend(loc="upper right")
 
     # Third plot, effect of averaging
+    # TODO: Show in documentation why we expect a linear relationship for effective averaging
     filter_dark = (frequency_dark >= data["statistics"]["bandwidth_start"]) & (
             frequency_dark <= data["statistics"]["bandwidth_stop"])
     filter_light = (frequency_light >= data["statistics"]["bandwidth_start"]) & (
@@ -172,9 +176,10 @@ def extended_multi_cycle(data,
     ax[2].set_xscale('log')
     ax[2].set_yscale('log')
     ax[2].set_xlabel(r"$N$, cumulative averaged traces")
-    ax[2].set_ylabel("Peak Dynamic range, frequency domain")
+    ax[2].set_ylabel("Peak dynamic range\nfrequency domain")
     ax[2].legend(loc="upper left")
-    ax[2].grid(True)
+    ax[2].grid(True, which="both")
+    fig.align_ylabels(ax)
     plt.tight_layout()
     plt.show(block=False)
 
@@ -192,7 +197,7 @@ def simple_multi_cycle(data,
         config.set_debug(False)
     if figsize is None:
         figsize = (12, 8)
-    fig, axs = plt.subplots(nrows=1, ncols=3, figsize=figsize)
+    fig, axs = plt.subplots(nrows=3, ncols=1, figsize=figsize)
     fig_title = ""
     ax = axs[0]
     if "dark1" in data.keys() and "dark2" in data.keys() and "dark" not in data.keys():
@@ -233,8 +238,9 @@ def simple_multi_cycle(data,
 
     fig_title += r"$\mathrm{SNR}_{\mathrm{max}}$" + f" (timedomain): {int(snr_timedomain_max)}"
     ax.legend(loc='upper right')
+    ax.set_xlabel("Light time")
+    ax.set_ylabel("Amplitude")
     ax.xaxis.set_major_formatter(EngFormatter(unit='s'))
-    ax.set_xlabel("Time")
     ax.yaxis.set_major_formatter(EngFormatter(unit='V'))
 
     ax = axs[1]
@@ -244,7 +250,7 @@ def simple_multi_cycle(data,
                                             max_THz_frequency=max_THz_frequency,
                                             threshold_dB=threshold_dB)
     # Prepare data, for an accumulated mean fo all single-traces calculate the FFT and dynamic range
-    if "window" not in data["applied_functions"]:
+    if not any(item.startswith("window") for item in data["applied_functions"]):
         config.logger.warn("It seems that you did not apply a window function to the data, "
                            "which will result in artifacts when using FFT."
                            "Please use `data = parrot.post_process_data.window(data)` before plotting.")
@@ -300,7 +306,7 @@ def simple_multi_cycle(data,
             alpha=0.8,
             label=f"{data['light']['number_of_traces']} averaged THz traces")
     ax.xaxis.set_major_formatter(EngFormatter(unit='Hz'))
-    ax.set_ylabel(r"Power spectrum [dB]")
+    ax.set_ylabel(r"Power spectrum (dB)")
     ax.set_xlabel("Frequency")
     ax.grid(True)
     if water_absorption_lines:
@@ -326,6 +332,7 @@ def simple_multi_cycle(data,
     fig_title += r", $\mathrm{DR}_{\mathrm{peak}}$" + f" (freq.-domain): {int(np.round(10 * np.log10(dynamic_range)))} dB"
     fig.subplots_adjust(top=0.9)
     fig.suptitle(fig_title)
+    fig.align_ylabels(axs)
     plt.tight_layout()
     plt.show(block=False)
 

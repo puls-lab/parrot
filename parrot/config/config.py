@@ -33,7 +33,7 @@ formatter = ColoredFormatter(
     colors={
         'DEBUG': Fore.CYAN,
         'INFO': Fore.GREEN,
-        'WARNING': Fore.YELLOW,
+        'WARNING': Fore.RED,
         'ERROR': Fore.RED,
         'CRITICAL': Fore.RED + Back.WHITE + Style.BRIGHT,
     }
