@@ -119,7 +119,7 @@ def run(data,
             data["delay_value"] = get_delay(data, original_time, position_interpolated, consider_all_traces, debug)
         shift_position(data, original_time, position_interpolated)
         if debug and dataset_name == "light":
-            fig3, ax3 = plot.debug_with_delay_compensation(data, position_interpolated, interpolated_delay,
+            fig3, ax3 = plot.debug_with_delay_compensation(data, interpolated_delay,
                                                            consider_all_traces, dataset_name, fig3, ax3)
     return data
 
@@ -137,7 +137,7 @@ def resample_data(data, max_thz_frequency):
     max_native_frequency = 1 / (
             np.max(np.gradient(data["position"], data["dt"])) * data["scale"] * data["dt"])
     factor = np.int64(np.floor(max_native_frequency / max_thz_frequency))
-    if factor < 1:
+    if factor < 2:
         config.logger.debug(f"No resampling necessary.")
         return data
     current_time = np.arange(0, len(data["position"]) * data["dt"], data["dt"])

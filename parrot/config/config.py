@@ -53,3 +53,10 @@ def set_debug(DEBUG=False):
         logger.setLevel(logging.WARNING)
     else:
         logger.setLevel(logging.INFO)
+
+
+def get_debug():
+    if logger.getEffectiveLevel() is logging.WARNING:
+        return False
+    else:
+        return True

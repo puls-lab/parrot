@@ -2,6 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.ticker import EngFormatter
 from pathlib import Path
+from scipy.optimize import brentq
+from scipy.stats import norm
 
 # Own library
 from ..process import post_process_data
@@ -451,7 +453,7 @@ def debug_no_delay_compensation(data, original_time, position_interpolated, inte
     return fig, ax
 
 
-def debug_with_delay_compensation(data, position_interpolated, interpolated_delay, consider_all_traces, dataset_name,
+def debug_with_delay_compensation(data, interpolated_delay, consider_all_traces, dataset_name,
                                   fig, ax):
     split_pos = np.split(data["position"], data["trace_cut_index"])
     split_sig = np.split(data["signal"], data["trace_cut_index"])
@@ -504,6 +506,75 @@ def debug_with_delay_compensation(data, position_interpolated, interpolated_dela
     else:
         ax[2].set_title(f"Standard deviation of dataset {dataset_name}")
     ax[2].set_xlabel("Light time")
+    plt.tight_layout()
+    plt.show(block=False)
+    return fig, ax
+
+
+def debug_analysis_amplitude_jitter(data):
+    # data is already the subset of the light-dataset
+    fig, axs = plt.subplots(nrows=2, ncols=2)
+    ax = axs[0, 0]
+    # Calculate the amplitude peak of each single trace
+    amplitude_peaks = np.max(data["single_traces"], axis=0)
+    ax.plot(np.arange(1, data["number_of_traces"] + 1), amplitude_peaks, color="tab:blue", alpha=0.8)
+    ax.set_xlabel("Trace ID")
+    ax.set_ylabel("Peak amplitude")
+    ax.yaxis.set_major_formatter(EngFormatter("V"))
+    ax.grid(True)
+
+    ax = axs[1, 0]
+    # Calculate jitter/zero-crossing between max. and min. for each single trace
+    idx_min = np.min([np.argmin(data["average"]["time_domain"]), np.argmax(data["average"]["time_domain"])])
+    idx_max = np.max([np.argmin(data["average"]["time_domain"]), np.argmax(data["average"]["time_domain"])])
+    # Use (int) index as the basis of the x-axis for creating a CubicSpline instead of light time as x-axis,
+    # to not run into trouble with interpolation of small numbers on the order of 1e-12, which is used in light time.
+    x = np.arange(idx_min, idx_max)
+    if not np.all(np.diff(x) > 0):
+        raise ValueError("The index array needs to be monotonically increasing, otherwise np.interp will not work.")
+    zero_crossing = np.zeros(data["single_traces"].shape[1])
+    zero_crossing[:] = np.nan
+    for i in range(data["single_traces"].shape[1]):
+        y = data["single_traces"][idx_min:idx_max, i]
+        # Use linear interpolation and not cubic_spline,
+        # which can have slight deviations between x, shifting the zero-crossing
+        f = lambda xnew: np.interp(xnew, x, y)
+        root = brentq(f, idx_min, idx_max)
+        # Convert (float) index to light_time value by linear interpolation
+        zero_crossing[i] = np.interp(root, np.arange(len(data["light_time"])), data["light_time"])
+    # Plot zero-corssing vs. trace ID
+    ax.plot(np.arange(1, data["number_of_traces"] + 1), zero_crossing, color="tab:orange", alpha=0.8)
+    ax.set_xlabel("Trace ID")
+    ax.set_ylabel("Zero-crossing / jitter")
+    ax.yaxis.set_major_formatter(EngFormatter("s"))
+    ax.grid(True)
+
+    ax = axs[0, 1]
+    # Plot amplitude as a histogram
+    (mu, sigma) = norm.fit(amplitude_peaks)
+    places = int(np.round(-np.log10(sigma / mu)))
+
+    ax.hist(np.max(data["single_traces"], axis=0), density=False, rwidth=0.9, color="tab:blue", bins="auto")
+    ax.xaxis.set_major_formatter(EngFormatter("V"))
+    ax.set_xlabel("Peak amplitude")
+    ax.set_ylabel("Frequency")
+    ax.set_title(f"{EngFormatter('V', places=places)(mu)}" +
+                 r"$\pm$" +
+                 f"{EngFormatter('V', places=places)(sigma)}" +
+                 f"({sigma / mu:.1%})")
+
+    ax = axs[1, 1]
+    # Plot zero-crossing as a histogram
+    (mu, sigma) = norm.fit(zero_crossing)
+    places = int(np.round(-np.log10(sigma / mu)))
+    ax.hist(zero_crossing, density=False, rwidth=0.9, color="tab:orange", bins="auto")
+    ax.xaxis.set_major_formatter(EngFormatter("s"))
+    ax.set_xlabel("Zero-crossing / jitter")
+    ax.set_ylabel("Frequency")
+    ax.set_title(f"{EngFormatter('s', places=places)(mu)}" +
+                 r"$\pm$" +
+                 f"{EngFormatter('s', places=1)(sigma)}")
+
     plt.tight_layout()
     plt.show(block=False)
     return fig, ax
