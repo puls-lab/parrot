@@ -542,10 +542,12 @@ def debug_analysis_amplitude_jitter(data):
         root = brentq(f, idx_min, idx_max)
         # Convert (float) index to light_time value by linear interpolation
         zero_crossing[i] = np.interp(root, np.arange(len(data["light_time"])), data["light_time"])
+    # Calculate zero-crossing/jitter with respect to the first trace
+    zero_crossing -= zero_crossing[0]
     # Plot zero-corssing vs. trace ID
     ax.plot(np.arange(1, data["number_of_traces"] + 1), zero_crossing, color="tab:orange", alpha=0.8)
     ax.set_xlabel("Trace ID")
-    ax.set_ylabel("Zero-crossing / jitter")
+    ax.set_ylabel("Zero-crossing / jitter\nwith respect to the 1st trace")
     ax.yaxis.set_major_formatter(EngFormatter("s"))
     ax.grid(True)
 
@@ -566,7 +568,7 @@ def debug_analysis_amplitude_jitter(data):
     ax = axs[1, 1]
     # Plot zero-crossing as a histogram
     (mu, sigma) = norm.fit(zero_crossing)
-    places = int(np.round(-np.log10(sigma / mu)))
+    places = int(np.round(-np.log10(np.abs(sigma / mu))))
     ax.hist(zero_crossing, density=False, rwidth=0.9, color="tab:orange", bins="auto")
     ax.xaxis.set_major_formatter(EngFormatter("s"))
     ax.set_xlabel("Zero-crossing / jitter")
