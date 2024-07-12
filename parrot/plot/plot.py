@@ -4,6 +4,7 @@ from matplotlib.ticker import EngFormatter
 from pathlib import Path
 from scipy.optimize import brentq
 from scipy.stats import norm
+from IPython.display import display, clear_output
 
 # Own library
 from ..process import post_process_data
@@ -407,6 +408,32 @@ def debug_position_cut(data, dataset_name):
     return fig, ax
 
 
+def debug_optimizing_delay(fig, axs=None, iteration_step=None, delay=None, error=None):
+    if fig is None:
+        fig, axs = plt.subplots(nrows=2, ncols=1)
+        for ax in axs:
+            ax.set_xlabel("Iteration")
+            ax.grid(True)
+        axs[1].set_xlabel("Iteration")
+        axs[0].set_ylabel("Delay (timesteps)")
+        axs[1].set_ylabel("Error (a.u.)")
+        axs[0].set_title("Optimizing delay between position- and THz-signal")
+        return fig, axs
+
+    ax = axs[0]
+    _ = ax.plot(iteration_step, delay, ".-", color="tab:blue")
+
+    ax = axs[1]
+    _ = ax.plot(iteration_step, error, ".-", color="tab:orange")
+    _ = display(fig)
+
+    _ = clear_output(wait=True)
+    _ = plt.tight_layout()
+    _ = plt.pause(0.05)
+    _ = plt.show(block=False)
+    return fig, axs
+
+
 def debug_no_delay_compensation(data, original_time, position_interpolated, interpolated_delay, consider_all_traces):
     fig, ax = plt.subplots(nrows=3, ncols=1, sharex=True)
     split_pos = np.split(data["position"], data["trace_cut_index"])
@@ -568,12 +595,11 @@ def debug_analysis_amplitude_jitter(data):
     ax = axs[1, 1]
     # Plot zero-crossing as a histogram
     (mu, sigma) = norm.fit(zero_crossing)
-    places = int(np.round(-np.log10(np.abs(sigma / mu))))
     ax.hist(zero_crossing, density=False, rwidth=0.9, color="tab:orange", bins="auto")
     ax.xaxis.set_major_formatter(EngFormatter("s"))
     ax.set_xlabel("Zero-crossing / jitter")
     ax.set_ylabel("Frequency")
-    ax.set_title(f"{EngFormatter('s', places=places)(mu)}" +
+    ax.set_title(f"{EngFormatter('s', places=1)(mu)}" +
                  r"$\pm$" +
                  f"{EngFormatter('s', places=1)(sigma)}")
 

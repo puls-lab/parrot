@@ -190,19 +190,54 @@ def cut_incomplete_traces(data):
     return data
 
 
+def _callback_optimizer(intermediate_result):
+    global iteration_steps
+    global iteration_delays
+    global iteration_errors
+    global debug_optimize_fig
+    global debug_optimize_axs
+    if len(iteration_steps) == 0:
+        iteration_steps = [1]
+    else:
+        iteration_steps.append(iteration_steps[-1] + 1)
+    iteration_delays.append(intermediate_result.x)
+    iteration_errors.append(intermediate_result.fun)
+    debug_optimize_fig, debug_optimize_axs = plot.debug_optimizing_delay(debug_optimize_fig,
+                                                                         debug_optimize_axs,
+                                                                         iteration_steps,
+                                                                         iteration_delays,
+                                                                         iteration_errors)
+
+
+
 def get_delay(data, original_time, position_interpolated, consider_all_traces, debug=False):
+    global iteration_steps
+    global iteration_delays
+    global iteration_errors
+    global debug_optimize_fig
+    global debug_optimize_axs
     interpolated_delay = np.linspace(0, 1, data["interpolation_resolution"])
     x0 = [0]
     init_simplex = np.array([0, 50]).reshape(2, 1)
     xatol = 0.1
+    iteration_steps = []
+    iteration_delays = []
+    iteration_errors = []
+    debug_optimize_fig, debug_optimize_axs = plot.debug_optimizing_delay(fig=None)
     res = minimize(_minimize,
                    x0,
                    method="Nelder-Mead",
+                   callback=_callback_optimizer,
                    args=(data, original_time, position_interpolated, interpolated_delay, consider_all_traces),
                    options={"disp": debug,
                             "maxiter": 30,
                             "xatol": xatol,
                             "initial_simplex": init_simplex})
+    debug_optimize_fig, debug_optimize_axs = plot.debug_optimizing_delay(debug_optimize_fig,
+                                                                         debug_optimize_axs,
+                                                                         iteration_steps,
+                                                                         iteration_delays,
+                                                                         iteration_errors)
     return res.x[0]
 
 
@@ -232,8 +267,10 @@ def _minimize(delay, data, original_time, position_interpolated, interpolated_de
         if not consider_all_traces and i > 100:
             break
         i += 1
-    config.logger.info(f"Delay:\t{delay[0]:.3f}\tError:\t{np.sum(np.nanstd(signal_matrix, axis=1))}")
-    return np.sum(np.nanstd(signal_matrix, axis=1))
+
+    # config.logger.info(f"Delay:\t{delay[0]:.3f}\tError:\t{np.sum(np.nanstd(signal_matrix, axis=1))}")
+    current_cost = np.sum(np.nanstd(signal_matrix, axis=1))
+    return current_cost
 
 
 def shift_position(data, original_time, position_interpolated):
