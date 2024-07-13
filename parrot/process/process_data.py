@@ -1,24 +1,9 @@
 import numpy as np
 
 # Own functions of parrot
-# from .prepare_data import PrepareData
 from ..process import prepare_data
 from ..plot import plot
 from ..config import config
-
-"""
-import logging
-# Set-up logger
-logger = logging.getLogger(__name__)
-logger.handlers.clear()
-
-formatter = logging.Formatter("[%(levelname)s] %(name)s: %(message)s")
-
-stream_handler = logging.StreamHandler()
-stream_handler.setFormatter(formatter)
-logger.addHandler(stream_handler)
-logger.setLevel(logging.INFO)
-"""
 
 
 def _calc_fft(time, signal):
@@ -89,6 +74,7 @@ def thz_and_dark(light, dark, recording_type="multi_cycle", **kwargs):
         data[mode]["frequency"] = frequency
         data[mode]["average"]["frequency_domain"] = signal_fft
     data["applied_functions"] = []
+    config.logger.info("Finished processing.")
     return data
 
 
@@ -125,6 +111,7 @@ def thz_and_two_darks(light, dark1, dark2, recording_type="multi_cycle", **kwarg
         data[mode]["frequency"] = frequency
         data[mode]["average"]["frequency_domain"] = signal_fft
     data["applied_functions"] = []
+    config.logger.info("Finished processing.")
     return data
 
 
@@ -140,6 +127,7 @@ def thz_only(light, recording_type="multi_cycle", **kwargs):
     data["light"]["frequency"] = frequency
     data["light"]["average"]["frequency_domain"] = signal_fft
     data["applied_functions"] = []
+    config.logger.info("Finished processing.")
     return data
 
 
@@ -153,4 +141,5 @@ def dark_only(dark, recording_type="multi_cycle", **kwargs):
     data["dark"]["frequency"] = frequency
     data["dark"]["average"]["frequency_domain"] = signal_fft
     data["applied_functions"] = []
+    config.logger.info("Finished processing.")
     return data

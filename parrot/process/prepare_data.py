@@ -13,6 +13,7 @@ import time
 from ..config import config
 from ..plot import plot
 
+
 def run(data,
         scale=None,
         delay_value=None,
@@ -57,8 +58,6 @@ def run(data,
     data["thz_recording_length"] = data["scale"] * (np.max(data["position"]) - np.min(data["position"]))
     data["thz_start_offset"] = data["scale"] * np.min(data["position"])
     if filter_signal:
-        if highcut_signal is None:
-            highcut_signal = max_thz_frequency
         data["signal"] = butter_filter(data["signal"],
                                        1 / data["dt"],
                                        lowcut=lowcut_signal,
@@ -94,7 +93,7 @@ def run(data,
             config.logger.info(
                 "Found interpolation resolution to have more than " +
                 f"{EngFormatter('Hz', places=1)(max_thz_frequency)}: 2 ** {exponent} = " +
-                f"{2 ** exponent} points")
+                f"{2 ** exponent} points.")
             break
     if data["interpolation_resolution"] is None:
         raise ValueError("Could not find a proper interpolation resolution between 2**6 and 2**20."
@@ -111,16 +110,19 @@ def run(data,
         data["light_time"] = interpolated_delay * data["thz_recording_length"] + data["thz_start_offset"]
         # Get timedelay between position and signal
         if debug and dataset_name == "light":
-            fig3, ax3 = plot.debug_no_delay_compensation(data, original_time, position_interpolated, interpolated_delay,
-                                                         consider_all_traces)
+            new_position = position_interpolated(original_time)
+            new_position = (new_position - np.nanmin(new_position)) / (
+                    np.nanmax(new_position) - np.nanmin(new_position))
+            data["temp"] = {"split_pos": np.split(data["position"], data["trace_cut_index"]),
+                            "split_sig": np.split(data["signal"], data["trace_cut_index"]),
+                            "new_position": new_position}
         if data["delay_value"] is None:
             config.logger.info(
                 f"No delay_value provided, searching now for optimal delay:")
             data["delay_value"] = get_delay(data, original_time, position_interpolated, consider_all_traces, debug)
         shift_position(data, original_time, position_interpolated)
         if debug and dataset_name == "light":
-            fig3, ax3 = plot.debug_with_delay_compensation(data, interpolated_delay,
-                                                           consider_all_traces, dataset_name, fig3, ax3)
+            fig3, ax3 = plot.debug_with_delay_compensation(data, interpolated_delay, consider_all_traces, dataset_name)
     return data
 
 
@@ -194,28 +196,35 @@ def _callback_optimizer(intermediate_result):
     global iteration_steps
     global iteration_delays
     global iteration_errors
-    global debug_optimize_fig
-    global debug_optimize_axs
     if len(iteration_steps) == 0:
         iteration_steps = [1]
     else:
         iteration_steps.append(iteration_steps[-1] + 1)
     iteration_delays.append(intermediate_result.x)
     iteration_errors.append(intermediate_result.fun)
-    debug_optimize_fig, debug_optimize_axs = plot.debug_optimizing_delay(debug_optimize_fig,
-                                                                         debug_optimize_axs,
-                                                                         iteration_steps,
-                                                                         iteration_delays,
-                                                                         iteration_errors)
+    # debug_optimize_fig, debug_optimize_axs = plot.debug_optimizing_delay(debug_optimize_fig,
+    #                                                                     debug_optimize_axs,
+    #                                                                     iteration_steps,
+    #                                                                     iteration_delays,
+    #                                                                     iteration_errors)
 
+
+def housekeeping_optimizer(delay, error):
+    global iteration_steps
+    global iteration_delays
+    global iteration_errors
+    if len(iteration_steps) == 0:
+        iteration_steps = [1]
+    else:
+        iteration_steps.append(iteration_steps[-1] + 1)
+    iteration_delays.append(delay)
+    iteration_errors.append(error)
 
 
 def get_delay(data, original_time, position_interpolated, consider_all_traces, debug=False):
     global iteration_steps
     global iteration_delays
     global iteration_errors
-    global debug_optimize_fig
-    global debug_optimize_axs
     interpolated_delay = np.linspace(0, 1, data["interpolation_resolution"])
     x0 = [0]
     init_simplex = np.array([0, 50]).reshape(2, 1)
@@ -223,21 +232,18 @@ def get_delay(data, original_time, position_interpolated, consider_all_traces, d
     iteration_steps = []
     iteration_delays = []
     iteration_errors = []
-    debug_optimize_fig, debug_optimize_axs = plot.debug_optimizing_delay(fig=None)
+    # debug_optimize_fig, debug_optimize_axs = plot.debug_optimizing_delay(fig=None)
     res = minimize(_minimize,
                    x0,
                    method="Nelder-Mead",
-                   callback=_callback_optimizer,
+                   # callback=_callback_optimizer,
                    args=(data, original_time, position_interpolated, interpolated_delay, consider_all_traces),
                    options={"disp": debug,
                             "maxiter": 30,
                             "xatol": xatol,
                             "initial_simplex": init_simplex})
-    debug_optimize_fig, debug_optimize_axs = plot.debug_optimizing_delay(debug_optimize_fig,
-                                                                         debug_optimize_axs,
-                                                                         iteration_steps,
-                                                                         iteration_delays,
-                                                                         iteration_errors)
+    if debug:
+        fig, axs = plot.debug_optimizing_delay(iteration_steps, iteration_delays, iteration_errors)
     return res.x[0]
 
 
@@ -270,6 +276,7 @@ def _minimize(delay, data, original_time, position_interpolated, interpolated_de
 
     # config.logger.info(f"Delay:\t{delay[0]:.3f}\tError:\t{np.sum(np.nanstd(signal_matrix, axis=1))}")
     current_cost = np.sum(np.nanstd(signal_matrix, axis=1))
+    housekeeping_optimizer(delay, current_cost)
     return current_cost
 
 
@@ -291,7 +298,7 @@ def butter_filter(data, fs, lowcut=None, highcut=None, order=5):
 def _butter_coeff(fs, lowcut=None, highcut=None, order=None):
     """Create coefficients for a butterworth filter."""
     nyq = 0.5 * fs
-    if highcut > nyq:
+    if highcut is not None and highcut > nyq:
         config.logger.info(
             f"{EngFormatter('Hz')(highcut)} > Nyquist-frequency ({EngFormatter('Hz')(nyq)}), "
             "ignoring parameter.")

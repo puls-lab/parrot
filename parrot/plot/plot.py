@@ -181,7 +181,8 @@ def extended_multi_cycle(data,
     ax[2].set_xlabel(r"$N$, cumulative averaged traces")
     ax[2].set_ylabel("Peak dynamic range\nfrequency domain")
     ax[2].legend(loc="upper left")
-    ax[2].grid(True, which="both")
+    ax[2].grid(True, which="both", alpha=0.3)
+    ax[2].set_axisbelow(True)
     fig.align_ylabels(ax)
     plt.tight_layout()
     plt.show(block=False)
@@ -408,36 +409,37 @@ def debug_position_cut(data, dataset_name):
     return fig, ax
 
 
-def debug_optimizing_delay(fig, axs=None, iteration_step=None, delay=None, error=None):
-    if fig is None:
-        fig, axs = plt.subplots(nrows=2, ncols=1)
-        for ax in axs:
-            ax.set_xlabel("Iteration")
-            ax.grid(True)
-        axs[1].set_xlabel("Iteration")
-        axs[0].set_ylabel("Delay (timesteps)")
-        axs[1].set_ylabel("Error (a.u.)")
-        axs[0].set_title("Optimizing delay between position- and THz-signal")
-        return fig, axs
+def debug_optimizing_delay(iteration_step=None, delay=None, error=None):
+    fig, axs = plt.subplots(nrows=2, ncols=1, sharex=True)
+    axs[0].grid(True)
+    axs[0].set_ylabel("Delay (timesteps)")
+    axs[0].set_title("Optimizing delay between position- and THz-signal")
+    axs[1].set_xlabel("Function evaluations")
+    axs[1].set_ylabel("Integrated error (a.u.)")
+
+    delay = np.array(delay).ravel()
 
     ax = axs[0]
-    _ = ax.plot(iteration_step, delay, ".-", color="tab:blue")
+    ax.plot(np.arange(1, len(delay) + 1), delay, ".-", color="tab:blue")
 
     ax = axs[1]
-    _ = ax.plot(iteration_step, error, ".-", color="tab:orange")
-    _ = display(fig)
-
-    _ = clear_output(wait=True)
-    _ = plt.tight_layout()
-    _ = plt.pause(0.05)
-    _ = plt.show(block=False)
+    ax.semilogy(np.arange(1, len(error) + 1), np.abs(error), ".-", color="tab:orange")
+    ax.grid(True, which="both", alpha=0.3)
+    ax.set_axisbelow(True)
+    plt.tight_layout()
+    plt.show(block=False)
     return fig, axs
 
 
-def debug_no_delay_compensation(data, original_time, position_interpolated, interpolated_delay, consider_all_traces):
+def debug_with_delay_compensation(data, interpolated_delay, consider_all_traces, dataset_name):
     fig, ax = plt.subplots(nrows=3, ncols=1, sharex=True)
-    split_pos = np.split(data["position"], data["trace_cut_index"])
-    split_sig = np.split(data["signal"], data["trace_cut_index"])
+    # Without delay compensation, use temporary stored data when there was no delay compensation applied
+    split_pos = data["temp"]["split_pos"]
+    split_sig = data["temp"]["split_sig"]
+    new_position = data["temp"]["new_position"]
+    # Housekeeping, remove temporary data from "data"
+    del data["temp"]
+
     for i in range(1, 10):
         if i % 2:
             ax[0].plot(data["scale"] * split_pos[i],
@@ -452,11 +454,7 @@ def debug_no_delay_compensation(data, original_time, position_interpolated, inte
     ax[0].xaxis.set_major_formatter(EngFormatter(unit='s'))
     ax[0].yaxis.set_major_formatter(EngFormatter(unit='V'))
     ax[0].set_title('Delay = 0 Sa')
-    ax[0].legend(loc="upper right")
-
-    # Calculate STD when no delay correction is applied
-    new_position = position_interpolated(original_time)
-    new_position = (new_position - np.nanmin(new_position)) / (np.nanmax(new_position) - np.nanmin(new_position))
+    ax[0].legend(loc="upper left")
     signal_matrix = np.zeros((data["interpolation_resolution"], data["number_of_traces"]))
     signal_matrix[:] = np.NaN
 
@@ -475,13 +473,9 @@ def debug_no_delay_compensation(data, original_time, position_interpolated, inte
         if not consider_all_traces and i > 100:
             break
         i += 1
+    error_no_delay = np.copy(np.nanstd(signal_matrix, axis=1))
 
-    ax[2].semilogy(data["light_time"], np.nanstd(signal_matrix, axis=1), color="black", label="Delay = 0 Sa")
-    return fig, ax
-
-
-def debug_with_delay_compensation(data, interpolated_delay, consider_all_traces, dataset_name,
-                                  fig, ax):
+    # With newly found delay compensation, using the corrected dataset
     split_pos = np.split(data["position"], data["trace_cut_index"])
     split_sig = np.split(data["signal"], data["trace_cut_index"])
     for i in range(1, 10):
@@ -501,7 +495,7 @@ def debug_with_delay_compensation(data, interpolated_delay, consider_all_traces,
     ax[1].set_title(
         f'Delay = {data["delay_value"]:.3f} Sa ' +
         f'({EngFormatter("s", places=1)(delay_amount)}) time delay compensation')
-    ax[1].legend(loc="upper right")
+    ax[1].legend(loc="upper left")
 
     # Calculate STD when delay correction is applied
     new_position = data["position"]
@@ -523,10 +517,28 @@ def debug_with_delay_compensation(data, interpolated_delay, consider_all_traces,
         if not consider_all_traces and i > 100:
             break
         i += 1
-    ax[2].semilogy(data["light_time"], np.nanstd(signal_matrix, axis=1), color="tab:green",
-                   label=f"Delay = {data['delay_value']:.3f} Sa")
-    ax[2].legend(loc="upper right")
-    ax[2].grid(True, which="both")
+
+    min_error_overall = np.min(np.concatenate((error_no_delay, np.nanstd(signal_matrix, axis=1))))
+    ax[2].fill_between(data["light_time"], error_no_delay,
+                       0.1 * min_error_overall,
+                       color="black",
+                       alpha=0.8,
+                       label="Delay = 0 Sa")
+    ax[2].fill_between(data["light_time"],
+                       np.nanstd(signal_matrix, axis=1),
+                       0.1 * min_error_overall,
+                       color="tab:green",
+                       alpha=0.8,
+                       label=f"Delay = {data['delay_value']:.3f} Sa")
+
+    # ax[2].semilogy(data["light_time"], np.nanstd(signal_matrix, axis=1), color="black", label="Delay = 0 Sa")
+    # ax[2].semilogy(data["light_time"], np.nanstd(signal_matrix, axis=1), color="tab:green",
+    #               label=f"Delay = {data['delay_value']:.3f} Sa")
+    ax[2].set_yscale("log")
+    ax[2].set_ylim(bottom=min_error_overall)
+    ax[2].legend(loc="upper left")
+    ax[2].grid(True, which="both", alpha=0.3)
+    ax[2].set_axisbelow(True)
     ax[2].yaxis.set_major_formatter(EngFormatter("V"))
     if dataset_name is None:
         ax[2].set_title(f"Standard deviation")
@@ -581,16 +593,22 @@ def debug_analysis_amplitude_jitter(data):
     ax = axs[0, 1]
     # Plot amplitude as a histogram
     (mu, sigma) = norm.fit(amplitude_peaks)
-    places = int(np.round(-np.log10(sigma / mu)))
 
     ax.hist(np.max(data["single_traces"], axis=0), density=False, rwidth=0.9, color="tab:blue", bins="auto")
     ax.xaxis.set_major_formatter(EngFormatter("V"))
     ax.set_xlabel("Peak amplitude")
     ax.set_ylabel("Frequency")
-    ax.set_title(f"{EngFormatter('V', places=places)(mu)}" +
-                 r"$\pm$" +
-                 f"{EngFormatter('V', places=places)(sigma)}" +
-                 f"({sigma / mu:.1%})")
+    if np.abs(sigma / mu) > 3e-2:
+        places = 0
+    elif np.abs(sigma / mu) > 3e-3:
+        places = 1
+    else:
+        places = 2
+    ax.set_title(r"Standard deviation: $\sigma=$" + f"{sigma / mu:.{places}%}")
+    # ax.set_title(f"{EngFormatter('V', places=places)(mu)}" +
+    #             r"$\pm$" +
+    #             f"{EngFormatter('V', places=places)(sigma)}" +
+    #             f"({sigma / mu:.1%})")
 
     ax = axs[1, 1]
     # Plot zero-crossing as a histogram
@@ -599,9 +617,14 @@ def debug_analysis_amplitude_jitter(data):
     ax.xaxis.set_major_formatter(EngFormatter("s"))
     ax.set_xlabel("Zero-crossing / jitter")
     ax.set_ylabel("Frequency")
-    ax.set_title(f"{EngFormatter('s', places=1)(mu)}" +
-                 r"$\pm$" +
-                 f"{EngFormatter('s', places=1)(sigma)}")
+    if sigma > 3e-15:
+        places = 0
+    else:
+        places = 1
+    ax.set_title(r"Standard deviation: $\sigma=$" + f"{EngFormatter('s', places=places)(sigma)}")
+    # ax.set_title(f"{EngFormatter('s', places=1)(mu)}" +
+    #             r"$\pm$" +
+    #             f"{EngFormatter('s', places=1)(sigma)}")
 
     plt.tight_layout()
     plt.show(block=False)
