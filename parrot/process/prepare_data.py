@@ -2,11 +2,10 @@ import numpy as np
 from scipy.signal import sosfiltfilt, butter, find_peaks
 from scipy.optimize import minimize
 import scipy.interpolate as interp
-# TODO: Remove matplotlib later (but not EngFormatter)
-import matplotlib
-
-matplotlib.use('TKAgg')
-import matplotlib.pyplot as plt
+# Only for debugging, otherwise PyCharm crashes
+# import matplotlib
+# matplotlib.use('TKAgg')
+# import matplotlib.pyplot as plt
 from matplotlib.ticker import EngFormatter
 # TODO: Delete time later
 import time

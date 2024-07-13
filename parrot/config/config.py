@@ -1,7 +1,6 @@
 import sys
 import logging
 from typing import Optional, Dict
-
 from colorama import Fore, Back, Style
 
 

@@ -4,7 +4,6 @@ from matplotlib.ticker import EngFormatter
 from pathlib import Path
 from scipy.optimize import brentq
 from scipy.stats import norm
-from IPython.display import display, clear_output
 
 # Own library
 from ..process import post_process_data
