@@ -1,7 +1,11 @@
+from colorama import Fore, Back, Style, init
+init()
 import sys
 import logging
 from typing import Optional, Dict
-from colorama import Fore, Back, Style
+# Important that colorama is initialized before import sys,
+# otherwise there is no color output in the Windows powershell
+# See https://stackoverflow.com/a/61069032
 
 
 class ColoredFormatter(logging.Formatter):

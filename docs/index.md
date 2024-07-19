@@ -21,3 +21,14 @@ You can also find the corresponding documentation for each module also in the he
 
 The program is released as Free and Open Source Software (FOSS), written by Tim Vogel at the Photonics and Ultrafast
 Laser Science (PULS) group at the Ruhr-University Bochum, Germany.
+
+## Virtual environment for forking/debugging of parrot
+* The following steps are meant for developing purposes of :parrot: and should be not necessary to just run :parrot:.*
+The requirements/enviroment is stored in `enivronment.yml`, which is automatically created by running `conda env export --from-history > environment.yml`.
+Unfortunately, there is currently a bug in venv of Python, which fails to install the classic `requirement.txt` due to a cmake-error, thus the use of an anaconda enviroment.
+To manually fork the code and create an associated virtual environment, you just have to run the following commands inside the root-directory of the downloaded source files:
+```
+conda create --name parrot --file .\environment.yml
+conda activate parrot
+python .\Example_compact.py
+```
