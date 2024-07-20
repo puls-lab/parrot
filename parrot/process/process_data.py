@@ -1,5 +1,12 @@
-import numpy as np
+"""Module for processing the THz data.
 
+This module serves as an entry point for the user, taking in python dictionaries containing the
+"time", (delay) "position" and (THz) "signal" as keys.
+
+The first treatment of the data as well as splitting is outsourced to "prepare_data.py".
+Afterwards, the data is interpolated in this module and the full "data" dictionary returned to the user.
+"""
+import numpy as np
 # Own functions of parrot
 from ..process import prepare_data
 from ..plot import plot

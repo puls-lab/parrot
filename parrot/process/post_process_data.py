@@ -1,3 +1,12 @@
+"""Module for post-processing data
+
+Even though the data is already split, averaged and already returned to the user, as a next step various methods of the
+post-processing module can be applied to the data.
+
+In particular cut, window and zero-padding helps for a successful Fourier-transformation of the data.
+Also, if dark data was supplied alongside the light data, systematic errors of the THz time domain spectroscopy
+(THz-TDS) setup can be compensated.
+"""
 import numpy as np
 from scipy.signal import get_window
 from matplotlib.ticker import EngFormatter

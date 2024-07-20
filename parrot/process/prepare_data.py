@@ -1,3 +1,10 @@
+"""Module for preparing the entered THz data
+
+The sampling rate is checked and various low and/or high-pass filter are applied.
+The number of traces is extracted and the positional data is split according to the extrema in the position signal.
+As a highlight of this module, possible phase delays between position signal and THz signal are compensated for.
+The data is first given back to the "proces_data.py" module before being returned to the user.
+"""
 import numpy as np
 from scipy.signal import sosfiltfilt, butter, find_peaks
 from scipy.optimize import minimize

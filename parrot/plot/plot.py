@@ -1,3 +1,11 @@
+"""Module for plotting the processed THz data.
+
+Besides displaying the data in time and frequency domain,
+further metrics like signal-to-noise ratio (SNR) and dynamic range (DR) are calculated.
+There is also the option if water vapor absorption lines should be displayed in the frequency domain.
+
+This module contains also various plot-function which are called when debug is set to True during processing.
+"""
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.ticker import EngFormatter
