@@ -15,13 +15,10 @@ The documentation of parrot can be found [here](https://timvog.github.io/parrot/
 If you have Python/pip installed, just enter:
 
 ```python
-pip
-install
-superparrot
+pip install parrot
 ```
 
-and it should install correctly. (The name `parrot` was unfortunately already taken on pypi.org, hence the different
-name for `pip install superparrot`. However, after installation you can import it as `parrot`.)
+and it should install correctly. Otherwise, just download the repository on [GitHub](https://github.com/TimVog/parrot/).
 
 ***
 
