@@ -9,7 +9,7 @@ Afterwards, the data is interpolated in this module and the full "data" dictiona
 import numpy as np
 # Own functions of parrot
 from ..process import prepare_data
-from ..plot import plot
+from ..plot import plot_debug
 from ..config import config
 
 
@@ -76,7 +76,7 @@ def thz_and_dark(light, dark, recording_type="multi_cycle", **kwargs):
     for mode in ["light", "dark"]:
         data[mode] = normalize_and_process(data[mode])
         if config.get_debug() and mode == "light":
-            fig, ax = plot.debug_analysis_amplitude_jitter(data["light"])
+            fig, ax = plot_debug.analysis_amplitude_jitter(data["light"])
         frequency, signal_fft = _calc_fft(data[mode]["light_time"], data[mode]["average"]["time_domain"])
         data[mode]["frequency"] = frequency
         data[mode]["average"]["frequency_domain"] = signal_fft
@@ -113,7 +113,7 @@ def thz_and_two_darks(light, dark1, dark2, recording_type="multi_cycle", **kwarg
     for mode in ["light", "dark1", "dark2"]:
         data[mode] = normalize_and_process(data[mode])
         if config.get_debug() and mode == "light":
-            fig, ax = plot.debug_analysis_amplitude_jitter(data["light"])
+            fig, ax = plot_debug.analysis_amplitude_jitter(data["light"])
         frequency, signal_fft = _calc_fft(data[mode]["light_time"], data[mode]["average"]["time_domain"])
         data[mode]["frequency"] = frequency
         data[mode]["average"]["frequency_domain"] = signal_fft
@@ -129,7 +129,7 @@ def thz_only(light, recording_type="multi_cycle", **kwargs):
     data = {"light": prepare_data.run(raw_data["light"], recording_type=recording_type, dataset_name="light", **kwargs)}
     data["light"] = normalize_and_process(data["light"])
     if config.get_debug():
-        fig, ax = plot.debug_analysis_amplitude_jitter(data["light"])
+        fig, ax = plot_debug.analysis_amplitude_jitter(data["light"])
     frequency, signal_fft = _calc_fft(data["light"]["light_time"], data["light"]["average"]["time_domain"])
     data["light"]["frequency"] = frequency
     data["light"]["average"]["frequency_domain"] = signal_fft

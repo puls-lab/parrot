@@ -32,7 +32,7 @@ def download_example_data(key, my_file):
 
 def check_example_date(key):
     # TODO: Check if this works
-    my_file = resources.path("parrot.example.example_data", key)
+    my_file = resources.files("parrot.example.example_data").joinpath(key)
     if my_file.is_file():
         with my_file.open("rb") as f:
             digest = hashlib.file_digest(f, "sha256")
@@ -60,7 +60,7 @@ def check_example_date(key):
             assert FileNotFoundError()
 
 
-def run():
+def initialize():
     for key in file_dict.keys():
         print("###")
         check_example_date(key)

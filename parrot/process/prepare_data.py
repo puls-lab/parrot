@@ -17,7 +17,7 @@ from matplotlib.ticker import EngFormatter
 # TODO: Delete time later
 import time
 from ..config import config
-from ..plot import plot
+from ..plot import plot_debug
 
 
 def run(data,
@@ -32,6 +32,7 @@ def run(data,
         lowcut_signal=1,
         highcut_signal=None,
         consider_all_traces=False,
+        optimization_search_range=50,
         dataset_name=None,
         debug=False):
     if debug:
@@ -47,7 +48,7 @@ def run(data,
     # Timestep in lab time
     data["dt"] = (data["time"][-1] - data["time"][0]) / (len(data["time"]) - 1)
     if debug and dataset_name == "light":
-        fig, ax = plot.debug_lab_time_raw(data)
+        fig, ax = plot_debug.lab_time_raw(data)
     if filter_position:
         data["position"] = butter_filter(data["position"],
                                          1 / data["dt"],
@@ -89,9 +90,9 @@ def run(data,
         # Get the peaks of the sinusoid (or similar) of the position data, then we know the number of traces
         data = get_multiple_index(data, filter_position, highcut_position)
     if debug and dataset_name == "light":
-        fig, ax = plot.debug_lab_time_filtered(data, lowcut_position, highcut_position, lowcut_signal, highcut_signal,
+        fig, ax = plot_debug.lab_time_filtered(data, lowcut_position, highcut_position, lowcut_signal, highcut_signal,
                                                fig, ax)
-        fig2, ax2 = plot.debug_position_cut(data, dataset_name)
+        fig2, ax2 = plot_debug.position_cut(data, dataset_name)
     data = cut_incomplete_traces(data)
     for exponent in range(6, 20):
         if 0.5 * (2 ** exponent / data["thz_recording_length"]) > max_thz_frequency:
@@ -125,10 +126,10 @@ def run(data,
         if data["delay_value"] is None:
             config.logger.info(
                 f"No delay_value provided, searching now for optimal delay:")
-            data["delay_value"] = get_delay(data, original_time, position_interpolated, consider_all_traces, debug)
+            data["delay_value"] = get_delay(data, original_time, position_interpolated, consider_all_traces, optimization_search_range, debug)
         shift_position(data, original_time, position_interpolated)
         if debug and dataset_name == "light":
-            fig3, ax3 = plot.debug_with_delay_compensation(data, interpolated_delay, consider_all_traces, dataset_name)
+            fig3, ax3 = plot_debug.with_delay_compensation(data, interpolated_delay, consider_all_traces, dataset_name)
     return data
 
 
@@ -208,14 +209,9 @@ def _callback_optimizer(intermediate_result):
         iteration_steps.append(iteration_steps[-1] + 1)
     iteration_delays.append(intermediate_result.x)
     iteration_errors.append(intermediate_result.fun)
-    # debug_optimize_fig, debug_optimize_axs = plot.debug_optimizing_delay(debug_optimize_fig,
-    #                                                                     debug_optimize_axs,
-    #                                                                     iteration_steps,
-    #                                                                     iteration_delays,
-    #                                                                     iteration_errors)
 
 
-def housekeeping_optimizer(delay, error):
+def _housekeeping_optimizer(delay, error):
     global iteration_steps
     global iteration_delays
     global iteration_errors
@@ -227,18 +223,17 @@ def housekeeping_optimizer(delay, error):
     iteration_errors.append(error)
 
 
-def get_delay(data, original_time, position_interpolated, consider_all_traces, debug=False):
+def get_delay(data, original_time, position_interpolated, consider_all_traces, optimization_search_range=50, debug=False):
     global iteration_steps
     global iteration_delays
     global iteration_errors
     interpolated_delay = np.linspace(0, 1, data["interpolation_resolution"])
     x0 = [0]
-    init_simplex = np.array([0, 50]).reshape(2, 1)
+    init_simplex = np.array([0, optimization_search_range]).reshape(2, 1)
     xatol = 0.1
     iteration_steps = []
     iteration_delays = []
     iteration_errors = []
-    # debug_optimize_fig, debug_optimize_axs = plot.debug_optimizing_delay(fig=None)
     res = minimize(_minimize,
                    x0,
                    method="Nelder-Mead",
@@ -249,7 +244,7 @@ def get_delay(data, original_time, position_interpolated, consider_all_traces, d
                             "xatol": xatol,
                             "initial_simplex": init_simplex})
     if debug:
-        fig, axs = plot.debug_optimizing_delay(iteration_steps, iteration_delays, iteration_errors)
+        fig, axs = plot_debug.optimizing_delay(iteration_steps, iteration_delays, iteration_errors)
     return res.x[0]
 
 
@@ -282,7 +277,7 @@ def _minimize(delay, data, original_time, position_interpolated, interpolated_de
 
     # config.logger.info(f"Delay:\t{delay[0]:.3f}\tError:\t{np.sum(np.nanstd(signal_matrix, axis=1))}")
     current_cost = np.sum(np.nanstd(signal_matrix, axis=1))
-    housekeeping_optimizer(delay, current_cost)
+    _housekeeping_optimizer(delay, current_cost)
     return current_cost
 
 

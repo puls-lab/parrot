@@ -22,7 +22,7 @@ classifiers = [
     "License :: OSI Approved :: GNU Lesser General Public License v3 or later (LGPLv3+)",
     "Operating System :: OS Independent"
 ]
-dependencies = ["colorama",
+dependencies = ["colorama>=0.4.6",
     "h5py",
     "matplotlib",
     "numpy",

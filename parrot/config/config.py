@@ -1,5 +1,5 @@
-from colorama import Fore, Back, Style, init
-init()
+from colorama import Fore, Back, Style, just_fix_windows_console
+just_fix_windows_console()
 import sys
 import logging
 from typing import Optional, Dict
