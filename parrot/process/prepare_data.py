@@ -156,6 +156,7 @@ def resample_data(data, max_thz_frequency):
         f"Current time sample: {EngFormatter('s')(data['dt'])} per sample. New time sample: {EngFormatter('s')(new_dt)} per sample.")
     data["position"] = np.interp(new_time, current_time, data["position"])
     data["signal"] = np.interp(new_time, current_time, data["signal"])
+    data["time"] = new_time
     data["dt"] = new_dt
     return data
 
