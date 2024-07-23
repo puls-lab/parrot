@@ -161,6 +161,9 @@ def subtract_polynomial(data, order=2):
 
 
 def correct_systematic_errors(data):
+    if "correct_systematic_errors" in data["applied_functions"]:
+        config.logger.info("Already applied `correct_systematic_errors(data)`. Skipping...")
+        return data
     # This only works when two dark traces were recorded with the same settings as with the light trace
     if any(item.startswith("window") for item in data["applied_functions"]):
         raise NotImplementedError("You already applied a window to the data, "
@@ -186,14 +189,18 @@ def correct_systematic_errors(data):
         data["dark"]["average"]["time_domain"] = dark1_avg - dark2_avg
         data["light"]["single_traces"] -= dark1_avg.reshape(-1, 1)
         data["light"]["average"]["time_domain"] -= dark1_avg
+        for mode in ["light", "dark"]:
+            frequency, signal_fft = _calc_fft(data[mode]["light_time"], data[mode]["average"]["time_domain"])
+            data[mode]["frequency"] = frequency
+            data[mode]["average"]["frequency_domain"] = signal_fft
         data["applied_functions"].append("correct_systematic_errors")
         return data
 
 
 def correct_gain_in_spectrum(data):
     config.logger.warning(
-        "This is an experimental feature!"
-        "It should only affect the magnitude but not the phase. If you do spectroscopic experiments, please test by yourself."
+        "This is an experimental feature! "
+        "It should only affect the magnitude but not the phase. If you do spectroscopic experiments, please test by yourself. "
         "The noise floor of the THz traces are flattened by creating a gain function based on RMS averaging of the single dark traces.")
     if "dark" not in data.keys():
         if "dark1" not in data.keys() and "dark2" not in data.keys():
