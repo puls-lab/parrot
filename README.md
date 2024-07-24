@@ -24,7 +24,7 @@ and it should install correctly. Otherwise, just download the repository on [Git
 
 ## How to use
 
-Go to [GitHub](https://github.com/TimVog/parrot/) and look at the files placed in the root directory. If you have
+Go to [GitHub](https://github.com/puls-lab/parrot/) and look at the files placed in the root directory. If you have
 Anaconda (or Python + Jupyter notebook) installed, try the `Example.ipynb` notebook in the root directory.
 If you prefer classic Python, check out `Example_compact.py` in the root directory. The distribution comes with some
 example data that allows you to see the capabilities of parrot.
@@ -33,10 +33,10 @@ example data that allows you to see the capabilities of parrot.
 
 ## Further information
 
-Check out the documentation [here](https://timvog.github.io/parrot/).
+Check out the documentation [here](https://puls-lab.github.io/parrot/).
 
 ***
 
 ## I have a problem / I have an idea / I found a bug
 
-Please open an issue on [GitHub](https://github.com/TimVog/parrot/issues).
+Please open an issue on [GitHub](https://github.com/puls-lab/parrot/issues).
