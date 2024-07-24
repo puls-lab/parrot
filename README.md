@@ -6,7 +6,7 @@ parrot is a Python package to load, process, and plot continuously recorded THz 
 data), obtained with electro-optic sampling (EOS), photoconductive antenna (PCA) receivers or similar
 techniques.
 
-The documentation of parrot can be found [here](https://timvog.github.io/parrot/).
+The documentation of parrot can be found [here](https://puls-lab.github.io/parrot/).
 
 ***
 
@@ -18,7 +18,7 @@ If you have Python/pip installed, just enter:
 pip install parrot
 ```
 
-and it should install correctly. Otherwise, just download the repository on [GitHub](https://github.com/TimVog/parrot/).
+and it should install correctly. Otherwise, just download the repository on [GitHub](https://github.com/puls-lab/parrot/).
 
 ***
 
