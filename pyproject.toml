@@ -29,8 +29,8 @@ dependencies = ["colorama>=0.4.6",
     "scipy", ]
 
 [project.urls]
-Source = "https://github.com/TimVog/parrot"
-Documentation = "https://timvog.github.io/parrot/"
+Source = "https://github.com/puls-lab/parrot"
+Documentation = "https://puls-lab.github.io/parrot/"
 
 [tool.hatch.build.targets.wheel]
 packages = ["parrot"]

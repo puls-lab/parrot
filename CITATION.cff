@@ -1,0 +1,35 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: parrot
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - given-names: Tim
+    family-names: Vogel
+    email: Tim.Vogel-u81@ruhr-uni-bochum.de
+    affiliation: Photonics and Ultrafast Laser Science (PULS)
+    orcid: 'https://orcid.org/0000-0002-2344-1525'
+  - name: Photonics and Ultrafst Laser Science (PULS)
+    address: Universitaetsstr. 150
+    city: Bochum
+    country: DE
+    post-code: '44810'
+    website: 'https://www.puls.ruhr-uni-bochum.de/'
+repository-code: 'https://github.com/puls-lab/parrot'
+abstract: >-
+  parrot is a Python software to process and average
+  continuously recorded THz data.
+keywords:
+  - Terahertz
+  - THz
+  - dataprocessing
+  - dynamic range
+  - DR
+  - signal-to-noise ratio
+  - SNR
+  - averaging
+license: GPL-3.0-or-later
