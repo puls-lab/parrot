@@ -13,12 +13,6 @@ authors:
     email: Tim.Vogel-u81@ruhr-uni-bochum.de
     affiliation: Photonics and Ultrafast Laser Science (PULS)
     orcid: 'https://orcid.org/0000-0002-2344-1525'
-  - name: Photonics and Ultrafst Laser Science (PULS)
-    address: Universitaetsstr. 150
-    city: Bochum
-    country: DE
-    post-code: '44810'
-    website: 'https://www.puls.ruhr-uni-bochum.de/'
 repository-code: 'https://github.com/puls-lab/parrot'
 abstract: >-
   parrot is a Python software to process and average
