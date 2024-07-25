@@ -83,23 +83,31 @@ def position_cut(data, dataset_name, figsize=None):
 
 def optimizing_delay(iteration_step=None, delay=None, error=None, figsize=None):
     if figsize is None:
-        figsize = (8, 8)
-    fig, axs = plt.subplots(nrows=2, ncols=1, sharex=True, figsize=figsize)
-    axs[0].grid(True)
-    axs[0].set_ylabel("Delay (timesteps)")
-    axs[0].set_title("Optimizing delay between position- and THz-signal")
-    axs[1].set_xlabel("Function evaluations")
-    axs[1].set_ylabel("Integrated error (a.u.)")
-
+        figsize = (8, 12)
+    fig, axs = plt.subplots(nrows=3, ncols=1, figsize=figsize)
     delay = np.array(delay).ravel()
 
     ax = axs[0]
     ax.plot(np.arange(1, len(delay) + 1), delay, ".-", color="tab:blue")
+    ax.grid(True)
+    ax.set_ylabel("Delay (timesteps)")
+    ax.set_title("Optimizing delay between position- and THz-signal")
 
     ax = axs[1]
     ax.semilogy(np.arange(1, len(error) + 1), np.abs(error), ".-", color="tab:orange")
     ax.grid(True, which="both", alpha=0.3)
     ax.set_axisbelow(True)
+    ax.set_xlabel("Function evaluations")
+    ax.set_ylabel("Integrated error (a.u.)")
+
+    ax = axs[2]
+    sorted_error = np.abs(error)[np.argsort(delay)]
+    sorted_delay = delay[np.argsort(delay)]
+    ax.plot(sorted_delay, sorted_error, ".-", color="tab:red")
+    ax.grid(True)
+    ax.set_xlabel("Delay (timesamples)")
+    ax.set_ylabel("Integrated error (a.u.)")
+    ax.set_title(f"Median distance between delays: {np.median(np.diff(sorted_delay)):.1f}")
     plt.tight_layout()
     plt.show(block=False)
     return fig, axs
@@ -238,16 +246,17 @@ def analysis_amplitude_jitter(data, figsize=None):
 
     ax = axs[1, 0]
     # Calculate jitter/zero-crossing between max. and min. for each single trace
-    idx_min = np.min([np.argmin(data["average"]["time_domain"]), np.argmax(data["average"]["time_domain"])])
-    idx_max = np.max([np.argmin(data["average"]["time_domain"]), np.argmax(data["average"]["time_domain"])])
-    # Use (int) index as the basis of the x-axis for creating a CubicSpline instead of light time as x-axis,
-    # to not run into trouble with interpolation of small numbers on the order of 1e-12, which is used in light time.
-    x = np.arange(idx_min, idx_max)
-    if not np.all(np.diff(x) > 0):
-        raise ValueError("The index array needs to be monotonically increasing, otherwise np.interp will not work.")
     zero_crossing = np.zeros(data["single_traces"].shape[1])
     zero_crossing[:] = np.nan
     for i in range(data["single_traces"].shape[1]):
+        idx_min = np.min([np.argmin(data["single_traces"][:, i]), np.argmax(data["single_traces"][:, i])])
+        idx_max = np.max([np.argmin(data["single_traces"][:, i]), np.argmax(data["single_traces"][:, i])])
+        # Use (int) index as the basis of the x-axis for creating a linear interpolation instead of light time as
+        # x-axis, to not run into trouble with interpolation of small numbers on the order of 1e-12, which is used in
+        # light time.
+        x = np.arange(idx_min, idx_max)
+        if not np.all(np.diff(x) > 0):
+            raise ValueError("The index array needs to be monotonically increasing, otherwise np.interp will not work.")
         y = data["single_traces"][idx_min:idx_max, i]
         # Use linear interpolation and not cubic_spline,
         # which can have slight deviations between x, shifting the zero-crossing
@@ -292,6 +301,7 @@ def analysis_amplitude_jitter(data, figsize=None):
     else:
         places = 1
     ax.set_title(r"Standard deviation: $\sigma=$" + f"{EngFormatter('s', places=places)(sigma)}")
+
     plt.tight_layout()
     plt.show(block=False)
     return fig, ax

@@ -7,15 +7,15 @@ The data is first given back to the "proces_data.py" module before being returne
 """
 import numpy as np
 from scipy.signal import sosfiltfilt, butter, find_peaks
-from scipy.optimize import minimize
+from scipy.optimize import minimize, direct
 import scipy.interpolate as interp
 # Only for debugging, otherwise PyCharm crashes
 # import matplotlib
 # matplotlib.use('TKAgg')
 # import matplotlib.pyplot as plt
+from timeit import default_timer as timer
+
 from matplotlib.ticker import EngFormatter
-# TODO: Delete time later
-import time
 from ..config import config
 from ..plot import plot_debug
 
@@ -32,7 +32,8 @@ def run(data,
         lowcut_signal=1,
         highcut_signal=None,
         consider_all_traces=False,
-        optimization_search_range=50,
+        global_delay_search=True,
+        local_search_startpoint=50,
         dataset_name=None,
         debug=False):
     if debug:
@@ -60,7 +61,8 @@ def run(data,
             config.logger.info(f"Position data is low-pass filtered with {EngFormatter('Hz')(highcut_position)}.")
         elif lowcut_position is not None and highcut_position is not None:
             config.logger.info(
-                f"Position data is low- and high-pass filtered with [{EngFormatter('Hz')(lowcut_position)}, {EngFormatter('Hz')(lowcut_position)}].")
+                f'Position data is low- and high-pass filtered with [{EngFormatter("Hz")(lowcut_position)}, '
+                f'{EngFormatter("Hz")(lowcut_position)}].')
     # Calculate the total record length in THz time, afterward we can select the correct interpolation resolution
     data["thz_recording_length"] = data["scale"] * (np.max(data["position"]) - np.min(data["position"]))
     data["thz_start_offset"] = data["scale"] * np.min(data["position"])
@@ -76,7 +78,8 @@ def run(data,
             config.logger.info(f"Signal data is low-pass filtered with {EngFormatter('Hz')(highcut_signal)}.")
         elif lowcut_signal is not None and highcut_signal is not None:
             config.logger.info(
-                f"Signal data is low- and high-pass filtered with [{EngFormatter('Hz')(lowcut_signal)}, {EngFormatter('Hz')(highcut_signal)}].")
+                f'Signal data is low- and high-pass filtered with [{EngFormatter("Hz")(lowcut_signal)}, '
+                f'{EngFormatter("Hz")(highcut_signal)}].')
     if filter_signal:
         data = resample_data(data, max_thz_frequency)
     if recording_type == "single_cycle":
@@ -88,7 +91,10 @@ def run(data,
             data["trace_cut_index"] = np.array([np.argmax(data["position"]), np.argmin(data["position"])])
     else:
         # Get the peaks of the sinusoid (or similar) of the position data, then we know the number of traces
-        data = get_multiple_index(data, filter_position, highcut_position)
+        trace_cut_index, number_of_traces = get_multiple_index(data["dt"], data["position"], filter_position,
+                                                               highcut_position)
+        data["trace_cut_index"] = trace_cut_index
+        data["number_of_traces"] = number_of_traces
     if debug and dataset_name == "light":
         fig, ax = plot_debug.lab_time_filtered(data, lowcut_position, highcut_position, lowcut_signal, highcut_signal,
                                                fig, ax)
@@ -125,8 +131,13 @@ def run(data,
                             "new_position": new_position}
         if data["delay_value"] is None:
             config.logger.info(
-                f"No delay_value provided, searching now for optimal delay:")
-            data["delay_value"] = get_delay(data, original_time, position_interpolated, consider_all_traces, optimization_search_range, debug)
+                f"No delay_value provided, searching now for optimal delay... (please wait)")
+            if global_delay_search:
+                data["delay_value"] = get_global_delay(data, original_time, position_interpolated, highcut_position,
+                                                       consider_all_traces, debug)
+            else:
+                data["delay_value"] = get_local_delay(data, original_time, position_interpolated, highcut_position,
+                                                      consider_all_traces, local_search_startpoint, debug)
         shift_position(data, original_time, position_interpolated)
         if debug and dataset_name == "light":
             fig3, ax3 = plot_debug.with_delay_compensation(data, interpolated_delay, consider_all_traces, dataset_name)
@@ -161,22 +172,22 @@ def resample_data(data, max_thz_frequency):
     return data
 
 
-def get_multiple_index(data, filter_position, highcut_position):
-    position = data["position"] - np.mean(data["position"])
+def get_multiple_index(dt, position, filter_position, highcut_position):
+    position = position - np.mean(position)
     if filter_position and highcut_position is not None:
-        original_max_freq = 1 / data["dt"]
+        original_max_freq = 1 / dt
         new_max_freq = 10 * highcut_position
         reduction_factor = int(np.round(original_max_freq / new_max_freq))
         signal_fft = np.abs(np.fft.rfft(np.abs(position[::reduction_factor])))
-        freq = np.fft.rfftfreq(len(position[::reduction_factor]), reduction_factor * data["dt"])
+        freq = np.fft.rfftfreq(len(position[::reduction_factor]), reduction_factor * dt)
         # Excluding the zero frequency "peak", which is related to offset
         guess_freq = np.abs(freq[np.argmax(signal_fft[1:]) + 1])
     else:
-        start = time.time()
+        start = timer()
         signal_fft = np.abs(np.fft.rfft(np.abs(position)))
-        freq = np.fft.rfftfreq(len(position), data["dt"])
+        freq = np.fft.rfftfreq(len(position), dt)
         guess_freq = np.abs(freq[np.argmax(signal_fft[1:]) + 1])
-        end = time.time()
+        end = timer()
         config.logger.info(
             f"Taking rFFT over complete position array, taking {EngFormatter('s', places=1)(end - start)}." +
             "If you specify filter_position=True and a reasonable highcut_position (in [Hz]), " +
@@ -184,10 +195,10 @@ def get_multiple_index(data, filter_position, highcut_position):
 
     idx, _ = find_peaks(np.abs(position),
                         height=0.8 * np.max(np.abs(position)),
-                        distance=round(0.9 * (1 / guess_freq) / data["dt"]))
-    data["trace_cut_index"] = idx
-    data["number_of_traces"] = len(data["trace_cut_index"]) + 1
-    return data
+                        distance=round(0.9 * (1 / guess_freq) / dt))
+    trace_cut_index = idx
+    number_of_traces = len(trace_cut_index) + 1
+    return trace_cut_index, number_of_traces
 
 
 def cut_incomplete_traces(data):
@@ -198,18 +209,6 @@ def cut_incomplete_traces(data):
     data["trace_cut_index"] = data["trace_cut_index"][1:-1] - data["trace_cut_index"][0]
     data["number_of_traces"] = len(data["trace_cut_index"]) + 1
     return data
-
-
-def _callback_optimizer(intermediate_result):
-    global iteration_steps
-    global iteration_delays
-    global iteration_errors
-    if len(iteration_steps) == 0:
-        iteration_steps = [1]
-    else:
-        iteration_steps.append(iteration_steps[-1] + 1)
-    iteration_delays.append(intermediate_result.x)
-    iteration_errors.append(intermediate_result.fun)
 
 
 def _housekeeping_optimizer(delay, error):
@@ -224,13 +223,71 @@ def _housekeeping_optimizer(delay, error):
     iteration_errors.append(error)
 
 
-def get_delay(data, original_time, position_interpolated, consider_all_traces, optimization_search_range=50, debug=False):
+def get_global_delay(data, original_time, position_interpolated, highcut_position, consider_all_traces, debug=False):
+    """Tried various global optimization alogirithms from the SciPy package.
+    The DIRECT algorithm was typically fast (< 10s) and reliable in finding the global minimum.
+
+    consider_all_traces is False as standard. That means, that only the first 100 traces are considered when calculating the standard deviation.
+    This should be normally sufficient and speed up computation."""
+    global iteration_steps
+    global iteration_delays
+    global iteration_errors
+    interpolated_delay = np.linspace(0, 1, data["interpolation_resolution"])
+    # Extract length (in timesamples) for one full delay scan. Don't take the first index,
+    # since it start position can be arbitrary
+    half_position_cycle = np.median(np.diff(data["trace_cut_index"])) / 2  # In timesamples
+    bounds = [(-half_position_cycle, +half_position_cycle)]
+
+    iteration_steps = []
+    iteration_delays = []
+    iteration_errors = []
+    # res = differential_evolution(func=_minimize,
+    #                             bounds=bounds,
+    #                             popsize=32,
+    #                             args=(
+    #                                 data, original_time, position_interpolated, highcut_position, interpolated_delay,
+    #                                 consider_all_traces),
+    #                             disp=debug)
+    # res = shgo(func=_minimize,
+    #           bounds=bounds,
+    #           n=128,
+    #           args=(
+    #               data, original_time, position_interpolated, highcut_position, interpolated_delay,
+    #               consider_all_traces),
+    #           options={"disp": debug})
+    # res = dual_annealing(func=_minimize,
+    #                     bounds=bounds,
+    #                     args=(
+    #                         data, original_time, position_interpolated, highcut_position, interpolated_delay,
+    #                         consider_all_traces))
+    # res = basinhopping(func=_minimize,
+    #                   x0=0,
+    #                   disp=True,
+    #                   minimizer_kwargs={
+    #                       "args": (data, original_time, position_interpolated, highcut_position, interpolated_delay,
+    #                                consider_all_traces)})
+    start = timer()
+    res = direct(func=_minimize,
+                 bounds=bounds,
+                 len_tol=5e-6,
+                 args=(data, original_time, position_interpolated, highcut_position, interpolated_delay,
+                       consider_all_traces))
+    # print(res)
+    end = timer()
+    config.logger.info(f"Global search for compensating phase delay took {EngFormatter('s', places=1)(end - start)}.")
+    if debug:
+        fig, axs = plot_debug.optimizing_delay(iteration_steps, iteration_delays, iteration_errors)
+    return res.x[0]
+
+
+def get_local_delay(data, original_time, position_interpolated, highcut_position, consider_all_traces,
+                    local_search_startpoint=50, debug=False):
     global iteration_steps
     global iteration_delays
     global iteration_errors
     interpolated_delay = np.linspace(0, 1, data["interpolation_resolution"])
     x0 = [0]
-    init_simplex = np.array([0, optimization_search_range]).reshape(2, 1)
+    init_simplex = np.array([0, local_search_startpoint]).reshape(2, 1)
     xatol = 0.1
     iteration_steps = []
     iteration_delays = []
@@ -238,8 +295,8 @@ def get_delay(data, original_time, position_interpolated, consider_all_traces, o
     res = minimize(_minimize,
                    x0,
                    method="Nelder-Mead",
-                   # callback=_callback_optimizer,
-                   args=(data, original_time, position_interpolated, interpolated_delay, consider_all_traces),
+                   args=(data, original_time, position_interpolated, highcut_position, interpolated_delay,
+                         consider_all_traces),
                    options={"disp": debug,
                             "maxiter": 30,
                             "xatol": xatol,
@@ -249,17 +306,22 @@ def get_delay(data, original_time, position_interpolated, consider_all_traces, o
     return res.x[0]
 
 
-def _minimize(delay, data, original_time, position_interpolated, interpolated_delay, consider_all_traces):
+def _minimize(delay, data, original_time, position_interpolated, highcut_position, interpolated_delay,
+              consider_all_traces):
     new_time_axis = delay * data["dt"] + np.copy(original_time)
     new_position = position_interpolated(new_time_axis)
     new_position = (new_position - np.nanmin(new_position)) / (np.nanmax(new_position) - np.nanmin(new_position))
-    signal_norm = (data["signal"] - np.min(data["signal"])) / (
-            np.max(data["signal"]) - np.min(data["signal"]))
+    new_signal = np.copy(data["signal"])
+    signal_norm = (new_signal - np.min(new_signal)) / (np.max(new_signal) - np.min(new_signal))
+
+    signal_norm = signal_norm[~np.isnan(new_position)]
+    new_position = new_position[~np.isnan(new_position)]
+    trace_cut_idx, number_of_traces = get_multiple_index(data["dt"], new_position, filter_position=True,
+                                                         highcut_position=highcut_position)
     signal_matrix = np.zeros((data["interpolation_resolution"], data["number_of_traces"]))
     signal_matrix[:] = np.NaN
-
-    traces_for_testing = zip(np.split(new_position, data["trace_cut_index"]),
-                             np.split(signal_norm, data["trace_cut_index"]))
+    traces_for_testing = zip(np.split(new_position, trace_cut_idx),
+                             np.split(signal_norm, trace_cut_idx))
     i = 0
     for position, signal in traces_for_testing:
         # Numpy's interpolation method needs sorted, strictly increasing values
@@ -284,7 +346,8 @@ def _minimize(delay, data, original_time, position_interpolated, interpolated_de
 
 def shift_position(data, original_time, position_interpolated):
     config.logger.info(
-        f"Found optimal delay_value {EngFormatter('Sa', places=3)(data['delay_value'])}, corresponding to a time delay of {EngFormatter('s')(data['delay_value'] * data['dt'])}.")
+        f"Found optimal delay_value {EngFormatter('Sa', places=3)(data['delay_value'])}, "
+        f"corresponding to a time delay of {EngFormatter('s')(data['delay_value'] * data['dt'])}.")
     new_time_axis = data["delay_value"] * data["dt"] + np.copy(original_time)
     data["position"] = position_interpolated(new_time_axis)
     data["signal"] = data["signal"][~np.isnan(data["position"])]
