@@ -10,8 +10,12 @@ each sliced & averaged individual trace, as well as averaged traces in the time 
 The `plot` module currently supports two different functions that can work with `data`.
 
 ```python
-fig, ax = parrot.plot.simple_multi_cycle(data)
-fig, ax = parrot.plot.extended_multi_cycle(data)
+# Simple Plot giving an overview of the data
+parrot.plot.simple_multi_cycle(data)
+plt.savefig("Simple_plot.png", dpi=600)
+# Extended plot, showing increase in dynamic range and standard deviation in time domain
+parrot.plot.extended_multi_cycle(data)
+plt.savefig("Extended_plot.png", dpi=600)
 ```
 
 Both are discussed in detail in the following sections:
