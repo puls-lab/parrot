@@ -115,30 +115,28 @@ def run(data,
     if recording_type == "multi_cycle":
         original_time = np.arange(0, data["dt"] * len(data["position"]), data["dt"])
         original_time = original_time[:data["position"].size]
-        position_interpolated = interp.interp1d(original_time,
-                                                data["position"],
-                                                bounds_error=False,
-                                                fill_value=np.nan)
+        signal_interpolated = interp.interp1d(original_time,
+                                              data["signal"],
+                                              bounds_error=False,
+                                              fill_value=np.nan)
         interpolated_delay = np.linspace(0, 1, data["interpolation_resolution"])
         data["light_time"] = interpolated_delay * data["thz_recording_length"] + data["thz_start_offset"]
         # Get timedelay between position and signal
         if debug and dataset_name == "light":
-            new_position = position_interpolated(original_time)
-            new_position = (new_position - np.nanmin(new_position)) / (
-                    np.nanmax(new_position) - np.nanmin(new_position))
+            old_signal = signal_interpolated(original_time)
             data["temp"] = {"split_pos": np.split(data["position"], data["trace_cut_index"]),
                             "split_sig": np.split(data["signal"], data["trace_cut_index"]),
-                            "new_position": new_position}
+                            "old_signal": old_signal}
         if data["delay_value"] is None:
             config.logger.info(
                 f"No delay_value provided, searching now for optimal delay... (please wait)")
             if global_delay_search:
-                data["delay_value"] = get_global_delay(data, original_time, position_interpolated, highcut_position,
+                data["delay_value"] = get_global_delay(data, original_time, signal_interpolated,
                                                        consider_all_traces, debug)
             else:
-                data["delay_value"] = get_local_delay(data, original_time, position_interpolated, highcut_position,
+                data["delay_value"] = get_local_delay(data, original_time, signal_interpolated,
                                                       consider_all_traces, local_search_startpoint, debug)
-        shift_position(data, original_time, position_interpolated)
+        shift_position(data, original_time, signal_interpolated)
         if debug and dataset_name == "light":
             fig3, ax3 = plot_debug.with_delay_compensation(data, interpolated_delay, consider_all_traces, dataset_name)
     return data
@@ -223,11 +221,12 @@ def _housekeeping_optimizer(delay, error):
     iteration_errors.append(error)
 
 
-def get_global_delay(data, original_time, position_interpolated, highcut_position, consider_all_traces, debug=False):
+def get_global_delay(data, original_time, signal_interpolated, consider_all_traces, debug=False):
     """Tried various global optimization alogirithms from the SciPy package.
     The DIRECT algorithm was typically fast (< 10s) and reliable in finding the global minimum.
 
-    consider_all_traces is False as standard. That means, that only the first 100 traces are considered when calculating the standard deviation.
+    consider_all_traces is False as standard.
+    That means, that only the first 100 traces are considered when calculating the standard deviation.
     This should be normally sufficient and speed up computation."""
     global iteration_steps
     global iteration_delays
@@ -235,43 +234,63 @@ def get_global_delay(data, original_time, position_interpolated, highcut_positio
     interpolated_delay = np.linspace(0, 1, data["interpolation_resolution"])
     # Extract length (in timesamples) for one full delay scan. Don't take the first index,
     # since it start position can be arbitrary
-    half_position_cycle = np.median(np.diff(data["trace_cut_index"])) / 2  # In timesamples
+    half_position_cycle = np.median(np.diff(data["trace_cut_index"])) / 2  # In time samples
     bounds = [(-half_position_cycle, +half_position_cycle)]
 
     iteration_steps = []
     iteration_delays = []
     iteration_errors = []
+    original_position_short = None
+    original_time_short = None
+    trace_cut_idx = None
+    number_of_traces_tested = 102
+    if not consider_all_traces and data["number_of_traces"] > number_of_traces_tested:
+        #  Cut position and signal data to the first 100 traces to accelerate shifting of the arrays
+        #  and using less memory
+        original_time_short = np.copy(original_time)[
+                              data["trace_cut_index"][1]:data["trace_cut_index"][number_of_traces_tested - 1]]
+        trace_cut_idx = data["trace_cut_index"][(data["trace_cut_index"] >= data["trace_cut_index"][2]) &
+                                                (data["trace_cut_index"] <= data["trace_cut_index"][
+                                                    number_of_traces_tested - 2])]
+        trace_cut_idx -= data["trace_cut_index"][1]
+        original_position_short = np.copy(data["position"])[
+                                  data["trace_cut_index"][1]:data["trace_cut_index"][number_of_traces_tested - 1]]
+    else:
+        original_time_short = np.copy(original_time)
+        original_position_short = np.copy(data["position"])
+        trace_cut_idx = data["trace_cut_index"]
+
     # res = differential_evolution(func=_minimize,
     #                             bounds=bounds,
     #                             popsize=32,
     #                             args=(
-    #                                 data, original_time, position_interpolated, highcut_position, interpolated_delay,
+    #                                 data, original_time, signal_interpolated, highcut_position, interpolated_delay,
     #                                 consider_all_traces),
     #                             disp=debug)
     # res = shgo(func=_minimize,
     #           bounds=bounds,
     #           n=128,
     #           args=(
-    #               data, original_time, position_interpolated, highcut_position, interpolated_delay,
+    #               data, original_time, signal_interpolated, highcut_position, interpolated_delay,
     #               consider_all_traces),
     #           options={"disp": debug})
     # res = dual_annealing(func=_minimize,
     #                     bounds=bounds,
     #                     args=(
-    #                         data, original_time, position_interpolated, highcut_position, interpolated_delay,
+    #                         data, original_time, signal_interpolated, highcut_position, interpolated_delay,
     #                         consider_all_traces))
     # res = basinhopping(func=_minimize,
     #                   x0=0,
     #                   disp=True,
     #                   minimizer_kwargs={
-    #                       "args": (data, original_time, position_interpolated, highcut_position, interpolated_delay,
+    #                       "args": (data, original_time, signal_interpolated, highcut_position, interpolated_delay,
     #                                consider_all_traces)})
     start = timer()
     res = direct(func=_minimize,
                  bounds=bounds,
                  len_tol=5e-6,
-                 args=(data, original_time, position_interpolated, highcut_position, interpolated_delay,
-                       consider_all_traces))
+                 args=(data, original_time_short, original_position_short, trace_cut_idx, signal_interpolated,
+                       interpolated_delay))
     # print(res)
     end = timer()
     config.logger.info(f"Global search for compensating phase delay took {EngFormatter('s', places=1)(end - start)}.")
@@ -280,7 +299,7 @@ def get_global_delay(data, original_time, position_interpolated, highcut_positio
     return res.x[0]
 
 
-def get_local_delay(data, original_time, position_interpolated, highcut_position, consider_all_traces,
+def get_local_delay(data, original_time, signal_interpolated, consider_all_traces,
                     local_search_startpoint=50, debug=False):
     global iteration_steps
     global iteration_delays
@@ -292,11 +311,30 @@ def get_local_delay(data, original_time, position_interpolated, highcut_position
     iteration_steps = []
     iteration_delays = []
     iteration_errors = []
+    original_position_short = None
+    original_time_short = None
+    trace_cut_idx = None
+    number_of_traces_tested = 102
+    if not consider_all_traces and data["number_of_traces"] > number_of_traces_tested:
+        #  Cut position and signal data to the first 100 traces to accelerate shifting of the arrays
+        #  and using less memory
+        original_time_short = np.copy(original_time)[
+                              data["trace_cut_index"][1]:data["trace_cut_index"][number_of_traces_tested - 1]]
+        trace_cut_idx = data["trace_cut_index"][(data["trace_cut_index"] >= data["trace_cut_index"][2]) &
+                                                (data["trace_cut_index"] <= data["trace_cut_index"][
+                                                    number_of_traces_tested - 2])]
+        trace_cut_idx -= data["trace_cut_index"][1]
+        original_position_short = np.copy(data["position"])[
+                                  data["trace_cut_index"][1]:data["trace_cut_index"][number_of_traces_tested - 1]]
+    else:
+        original_time_short = np.copy(original_time)
+        original_position_short = np.copy(data["position"])
+        trace_cut_idx = data["trace_cut_index"]
     res = minimize(_minimize,
                    x0,
                    method="Nelder-Mead",
-                   args=(data, original_time, position_interpolated, highcut_position, interpolated_delay,
-                         consider_all_traces),
+                   args=(data, original_time_short, original_position_short, trace_cut_idx, signal_interpolated,
+                         interpolated_delay),
                    options={"disp": debug,
                             "maxiter": 30,
                             "xatol": xatol,
@@ -306,22 +344,24 @@ def get_local_delay(data, original_time, position_interpolated, highcut_position
     return res.x[0]
 
 
-def _minimize(delay, data, original_time, position_interpolated, highcut_position, interpolated_delay,
-              consider_all_traces):
-    new_time_axis = delay * data["dt"] + np.copy(original_time)
-    new_position = position_interpolated(new_time_axis)
-    new_position = (new_position - np.nanmin(new_position)) / (np.nanmax(new_position) - np.nanmin(new_position))
-    new_signal = np.copy(data["signal"])
-    signal_norm = (new_signal - np.min(new_signal)) / (np.max(new_signal) - np.min(new_signal))
+def _minimize(delay, data, original_time_short, original_position_short, trace_cut_idx, signal_interpolated,
+              interpolated_delay):
+    new_time_axis = delay * data["dt"] + original_time_short
+    new_signal = signal_interpolated(new_time_axis)
+    new_signal = (new_signal - np.nanmin(new_signal)) / (np.nanmax(new_signal) - np.nanmin(new_signal))
 
-    signal_norm = signal_norm[~np.isnan(new_position)]
-    new_position = new_position[~np.isnan(new_position)]
-    trace_cut_idx, number_of_traces = get_multiple_index(data["dt"], new_position, filter_position=True,
-                                                         highcut_position=highcut_position)
-    signal_matrix = np.zeros((data["interpolation_resolution"], data["number_of_traces"]))
-    signal_matrix[:] = np.NaN
+    new_position = original_position_short
+    new_position = (new_position - np.min(new_position)) / (np.max(new_position) - np.min(new_position))
+
+    new_position = new_position[~np.isnan(new_signal)]
+    new_signal = new_signal[~np.isnan(new_signal)]
+
     traces_for_testing = zip(np.split(new_position, trace_cut_idx),
-                             np.split(signal_norm, trace_cut_idx))
+                             np.split(new_signal, trace_cut_idx))
+
+    signal_matrix = np.zeros((data["interpolation_resolution"], len(trace_cut_idx) + 1))
+    signal_matrix[:] = np.NaN
+
     i = 0
     for position, signal in traces_for_testing:
         # Numpy's interpolation method needs sorted, strictly increasing values
@@ -329,13 +369,11 @@ def _minimize(delay, data, original_time, position_interpolated, highcut_positio
         position = position[np.argsort(position)]
         # Since it needs to be strictly increasing, keep only values where x is strictly increasing.
         # Ignore any other y value when it has the same x value.
-        signal = np.append(signal[0], signal[1:][(np.diff(position) > 0)])
-        position = np.append(position[0], position[1:][(np.diff(position) > 0)])
+        # signal = np.append(signal[0], signal[1:][(np.diff(position) > 0)])
+        # position = np.append(position[0], position[1:][(np.diff(position) > 0)])
 
         signal = np.interp(interpolated_delay, position, signal)
         signal_matrix[:, i] = signal
-        if not consider_all_traces and i > 100:
-            break
         i += 1
 
     # config.logger.info(f"Delay:\t{delay[0]:.3f}\tError:\t{np.sum(np.nanstd(signal_matrix, axis=1))}")
@@ -344,14 +382,14 @@ def _minimize(delay, data, original_time, position_interpolated, highcut_positio
     return current_cost
 
 
-def shift_position(data, original_time, position_interpolated):
+def shift_position(data, original_time, signal_interpolated):
     config.logger.info(
         f"Found optimal delay_value {EngFormatter('Sa', places=3)(data['delay_value'])}, "
         f"corresponding to a time delay of {EngFormatter('s')(data['delay_value'] * data['dt'])}.")
     new_time_axis = data["delay_value"] * data["dt"] + np.copy(original_time)
-    data["position"] = position_interpolated(new_time_axis)
-    data["signal"] = data["signal"][~np.isnan(data["position"])]
-    data["position"] = data["position"][~np.isnan(data["position"])]
+    data["signal"] = signal_interpolated(new_time_axis)
+    data["position"] = data["position"][~np.isnan(data["signal"])]
+    data["signal"] = data["signal"][~np.isnan(data["signal"])]
 
 
 def butter_filter(data, fs, lowcut=None, highcut=None, order=5):

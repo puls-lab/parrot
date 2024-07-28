@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.ticker import EngFormatter
 from scipy.optimize import brentq
-from scipy.stats import norm
+from scipy.stats import norm, kde
 # Own library
 from ..process import post_process_data
 from ..config import config
@@ -60,8 +60,9 @@ def position_cut(data, dataset_name, figsize=None):
         figsize = (8, 4)
     fig, ax = plt.subplots(figsize=figsize)
     ax.plot(data["position"], label="Position")
-    [ax.axvline(x, color="black", alpha=0.8) for x in data["trace_cut_index"]]
-    ax.axvline(np.nan, color="black", alpha=0.8, label="Cut index")
+    # axvline is unfortunately quite slow --> currently commented out
+    # [ax.axvline(x, color="black", alpha=0.8) for x in data["trace_cut_index"]]
+    # ax.axvline(np.nan, color="black", alpha=0.8, label="Cut index")
     ax.legend(loc="upper right")
     if data["number_of_traces"] > 10:
         # If more than 10 single traces are detected, restrict x-axis to only show first ten,
@@ -120,7 +121,6 @@ def with_delay_compensation(data, interpolated_delay, consider_all_traces, datas
     # Without delay compensation, use temporary stored data when there was no delay compensation applied
     split_pos = data["temp"]["split_pos"]
     split_sig = data["temp"]["split_sig"]
-    new_position = data["temp"]["new_position"]
     # Housekeeping, remove temporary data from "data"
     del data["temp"]
 
@@ -142,6 +142,10 @@ def with_delay_compensation(data, interpolated_delay, consider_all_traces, datas
     signal_matrix = np.zeros((data["interpolation_resolution"], data["number_of_traces"]))
     signal_matrix[:] = np.NaN
 
+    new_position = data["position"]
+    new_position = (new_position - np.nanmin(new_position)) / (np.nanmax(new_position) - np.nanmin(new_position))
+    signal_matrix = np.zeros((data["interpolation_resolution"], data["number_of_traces"]))
+    signal_matrix[:] = np.NaN
     i = 0
     for position, signal in zip(np.split(new_position, data["trace_cut_index"]), split_sig):
         # Numpy's interpolation method needs sorted, strictly increasing values
@@ -232,75 +236,99 @@ def with_delay_compensation(data, interpolated_delay, consider_all_traces, datas
 
 def analysis_amplitude_jitter(data, figsize=None):
     if figsize is None:
-        figsize = (8, 8)
-    # data is already the subset of the light-dataset
-    fig, axs = plt.subplots(nrows=2, ncols=2, figsize=figsize)
-    ax = axs[0, 0]
+        figsize = (8, 12)
+    fig, axs = plt.subplot_mosaic([['A', 'A', 'A2'],
+                                   ['B', 'B', 'B2'],
+                                   ['C', 'C', 'C2']])
+
+    ax = axs["A"]
     # Calculate the amplitude peak of each single trace
     amplitude_peaks = np.max(data["single_traces"], axis=0)
-    ax.plot(np.arange(1, data["number_of_traces"] + 1), amplitude_peaks, color="tab:blue", alpha=0.8)
+    ax.plot(np.arange(data["number_of_traces"]), amplitude_peaks, color="tab:blue", alpha=0.8)
     ax.set_xlabel("Trace ID")
     ax.set_ylabel("Peak amplitude")
     ax.yaxis.set_major_formatter(EngFormatter("V"))
     ax.grid(True)
 
-    ax = axs[1, 0]
-    # Calculate jitter/zero-crossing between max. and min. for each single trace
-    zero_crossing = np.zeros(data["single_traces"].shape[1])
-    zero_crossing[:] = np.nan
-    for i in range(data["single_traces"].shape[1]):
-        idx_min = np.min([np.argmin(data["single_traces"][:, i]), np.argmax(data["single_traces"][:, i])])
-        idx_max = np.max([np.argmin(data["single_traces"][:, i]), np.argmax(data["single_traces"][:, i])])
-        # Use (int) index as the basis of the x-axis for creating a linear interpolation instead of light time as
-        # x-axis, to not run into trouble with interpolation of small numbers on the order of 1e-12, which is used in
-        # light time.
-        x = np.arange(idx_min, idx_max)
-        if not np.all(np.diff(x) > 0):
-            raise ValueError("The index array needs to be monotonically increasing, otherwise np.interp will not work.")
-        y = data["single_traces"][idx_min:idx_max, i]
-        # Use linear interpolation and not cubic_spline,
-        # which can have slight deviations between x, shifting the zero-crossing
-        f = lambda xnew: np.interp(xnew, x, y)
-        root = brentq(f, idx_min, idx_max)
-        # Convert (float) index to light_time value by linear interpolation
-        zero_crossing[i] = np.interp(root, np.arange(len(data["light_time"])), data["light_time"])
-    # Calculate zero-crossing/jitter with respect to the first trace
-    zero_crossing -= zero_crossing[0]
-    # Plot zero-corssing vs. trace ID
-    ax.plot(np.arange(1, data["number_of_traces"] + 1), zero_crossing, color="tab:orange", alpha=0.8)
+    ax = axs["B"]
+    # Calculate energy (in a.u.) of each single trace
+    energy = np.trapz(np.abs(data["single_traces"].T) ** 2)
+    ax.plot(np.arange(data["number_of_traces"]), energy, color="tab:orange", alpha=0.8)
     ax.set_xlabel("Trace ID")
-    ax.set_ylabel("Zero-crossing / jitter\nwith respect to the 1st trace")
+    ax.set_ylabel("Energy (a.u.)")
+    ax.grid(True)
+
+    ax = axs["C"]
+    # Calculate jitter based on cross-correlation
+    jitter = post_process_data._get_jitter_oversampled(data)
+    # Plot jitter vs. trace ID
+    ax.plot(np.arange(data["number_of_traces"]), jitter, color="tab:green", alpha=0.8)
+    ax.set_xlabel("Trace ID")
+    ax.set_ylabel("Jitter\nvs. first trace")
     ax.yaxis.set_major_formatter(EngFormatter("s"))
     ax.grid(True)
 
-    ax = axs[0, 1]
-    # Plot amplitude as a histogram
-    (mu, sigma) = norm.fit(amplitude_peaks)
+    axs_vs_trace_id = [axs["A"], axs["B"], axs["C"]]
+    for ax in axs_vs_trace_id[1:]:
+        ax.sharex(axs["A"])
+    for ax in axs_vs_trace_id:
+        ax.set_xlim([0, data["number_of_traces"] - 1])
+    fig.align_ylabels(axs_vs_trace_id)
 
-    ax.hist(np.max(data["single_traces"], axis=0), density=False, rwidth=0.9, color="tab:blue", bins="auto")
-    ax.xaxis.set_major_formatter(EngFormatter("V"))
-    ax.set_xlabel("Peak amplitude")
-    ax.set_ylabel("Frequency")
+    ax = axs["A2"]
+    # Plot amplitude as a histogram / kernel density estimate (kind of like smooth histogram)
+    (mu, sigma) = norm.fit(amplitude_peaks)
+    density = kde.gaussian_kde(amplitude_peaks)
     if np.abs(sigma / mu) > 3e-2:
         places = 0
     elif np.abs(sigma / mu) > 3e-3:
         places = 1
     else:
         places = 2
-    ax.set_title(r"Standard deviation: $\sigma=$" + f"{sigma / mu:.{places}%}")
+    x = np.linspace(np.min(amplitude_peaks), np.max(amplitude_peaks), 201)
+    ax.plot(x, density(x) / np.max(density(x)), color="tab:blue")
+    ax.set_xlabel("Peak amplitude")
+    ax.set_ylabel("Density (norm.)")
+    ax.set_title(r"STD: $\sigma=$" + f"{sigma / mu:.{places}%}")
+    ax.xaxis.set_major_formatter(EngFormatter("V"))
+    ax.grid(True)
 
-    ax = axs[1, 1]
-    # Plot zero-crossing as a histogram
-    (mu, sigma) = norm.fit(zero_crossing)
-    ax.hist(zero_crossing, density=False, rwidth=0.9, color="tab:orange", bins="auto")
-    ax.xaxis.set_major_formatter(EngFormatter("s"))
-    ax.set_xlabel("Zero-crossing / jitter")
-    ax.set_ylabel("Frequency")
+    ax = axs["B2"]
+    # Plot energy as a histogram / kernel density estimate (kind of like smooth histogram)
+    (mu, sigma) = norm.fit(energy)
+    density = kde.gaussian_kde(energy)
+    if np.abs(sigma / mu) > 3e-2:
+        places = 0
+    elif np.abs(sigma / mu) > 3e-3:
+        places = 1
+    else:
+        places = 2
+    x = np.linspace(np.min(energy), np.max(energy), 201)
+    ax.plot(x, density(x) / np.max(density(x)), color="tab:orange")
+    ax.set_xlabel("Energy (a.u.)")
+    ax.set_ylabel("Density (norm.)")
+    ax.set_title(r"STD: $\sigma=$" + f"{sigma / mu:.{places}%}")
+    ax.grid(True)
+
+    ax = axs["C2"]
+    # Plot jitter as a histogram / kernel density estimate (kind of like smooth histogram)
+    (mu, sigma) = norm.fit(jitter)
+    density = kde.gaussian_kde(jitter)
     if sigma > 3e-15:
         places = 0
     else:
         places = 1
-    ax.set_title(r"Standard deviation: $\sigma=$" + f"{EngFormatter('s', places=places)(sigma)}")
+    ax.set_title(r"STD: $\sigma=$" + f"{EngFormatter('s', places=places)(sigma)}")
+    x = np.linspace(np.min(jitter), np.max(jitter), 201)
+    ax.plot(x, density(x) / np.max(density(x)), color="tab:green")
+    ax.grid(True)
+    ax.set_xlabel("Jitter")
+    ax.set_ylabel("Density (norm.)")
+    ax.xaxis.set_major_formatter(EngFormatter("s"))
+    ax.grid(True)
+
+    for ax in [axs["A2"], axs["B2"], axs["C2"]]:
+        ax.set_ylim([0, 1])
 
     plt.tight_layout()
     plt.show(block=False)

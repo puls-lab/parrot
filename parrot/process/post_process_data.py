@@ -8,7 +8,7 @@ Also, if dark data was supplied alongside the light data, systematic errors of t
 (THz-TDS) setup can be compensated.
 """
 import numpy as np
-from scipy.signal import get_window
+from scipy.signal import get_window, correlate, correlation_lags
 from matplotlib.ticker import EngFormatter
 
 from .process_data import _calc_fft
@@ -234,6 +234,141 @@ def correct_gain_in_spectrum(data):
         data[mode]["single_traces"] = np.fft.irfft(single_traces.T, axis=0,
                                                    n=len(data[mode]["average"]["time_domain"]))
     data["applied_functions"].append("correct_gain_in_spectrum")
+    return data
+
+
+def _get_index_of_outliers(values, sigma=3.5):
+    """Based on the modified z-score using median absolute deviation (MAD) instead of mean.
+
+    For the correction factor see e.g., https://www.itl.nist.gov/div898/handbook/eda/section3/eda35h.htm
+    """
+    deviation = np.abs(values - np.median(values))
+    mad = np.median(deviation)
+    mod_z_score = 0.6745 * deviation / mad
+    idx = np.where(mod_z_score > sigma)[0]
+    return idx
+
+
+def _get_jitter(data):
+    # Oversampling is currently not implemented due to large speed penalty
+    x_norm = np.linspace(0, 1, data['interpolation_resolution'])
+
+    all_traces = data["single_traces"] - np.mean(data["single_traces"], axis=0)
+    first_trace = all_traces[:, 0]
+
+    jitter = np.zeros(data["single_traces"].shape[1])
+    jitter[1:] = np.nan
+    light_time_dt = np.mean(np.diff(data["light_time"]))
+    for i in range(1, data["single_traces"].shape[1]):
+        current_trace = all_traces[:, i]
+        correlation = correlate(first_trace, current_trace, mode="same", method="fft")
+        if i == 1:
+            lags = correlation_lags(first_trace.size, current_trace.size, mode="same")
+        jitter[i] = light_time_dt * lags[np.argmax(correlation)]
+    return jitter
+
+
+def _get_range_for_oversampling(trace, relative_energy_threshold=0.1, useable_range=0.1):
+    # Calculate the energy of the first trace and normalioze it
+    trace_norm = np.abs(trace) ** 2 / np.max(np.abs(trace) ** 2)
+    # This allows to detect the first and last index, which is above the `relative_energy_threshold` [%]
+    idx = np.where(trace_norm > relative_energy_threshold)[0]
+    # Convert the span of the indices to a percentage, how much is covered relative to the full trace length
+    current_range = (idx[-1] - idx[0]) / len(trace)
+    # If the span is smaller than `useable_range` [%], we can expand the span equally on both sides to `useable_range`
+    if current_range < useable_range:
+        extension = (useable_range - current_range) / 2
+        new_idx_start = int(idx[0] - extension * len(trace))
+        new_idx_stop = int(idx[-1] + extension * len(trace))
+    else:
+        new_idx_start = idx[0]
+        new_idx_stop = idx[-1]
+    return new_idx_start, new_idx_stop
+
+
+def _get_jitter_oversampled(data, relative_energy_threshold=0.1, useable_range=0.1, oversampling=10):
+    # Oversampling results in higher resolution, but at the expense of speed.
+    # To compensate for this, the signal which is close to zero (no THz present) is cut out,
+    # which reduces the amount of data per trace. Afterwards, oversampling is used.
+    x_norm = np.linspace(0, 1, data['interpolation_resolution'])
+
+    all_traces = data["single_traces"] - np.mean(data["single_traces"], axis=0)
+    first_trace = all_traces[:, 0]
+    idx_start, idx_stop = _get_range_for_oversampling(first_trace, relative_energy_threshold, useable_range)
+    idx_start_first_trace = idx_start
+    x_norm_cut = x_norm[idx_start:idx_stop]
+    first_trace = first_trace[idx_start:idx_stop]
+    dx = (x_norm_cut[-1] - x_norm_cut[0]) / (len(x_norm_cut) - 1)
+    # Since scipy.signal.correlate uses an FFT for correlation,
+    # make sure that the new, oversampled x-axis has 2 ** n samples.
+    for exponent in range(int(np.log2(x_norm_cut.size)), 16):
+        x_new_cut = np.linspace(x_norm_cut[0], x_norm_cut[-1], 2 ** exponent)
+        dx_oversampled = (x_new_cut[-1] - x_new_cut[0]) / (len(x_new_cut) - 1)
+        if dx / dx_oversampled > oversampling:
+            break
+    first_trace_oversampled = np.interp(x_new_cut, x_norm_cut, first_trace)
+    jitter = np.zeros(data["single_traces"].shape[1])
+    jitter[1:] = np.nan
+    light_time_dt = np.mean(np.diff(data["light_time"]))
+    for i in range(1, data["single_traces"].shape[1]):
+        current_trace = all_traces[:, i][idx_start:idx_stop]
+        current_trace_oversampled = np.interp(x_new_cut, x_norm_cut, current_trace)
+        correlation = correlate(first_trace_oversampled, current_trace_oversampled, mode="same", method="fft")
+        if i == 1:
+            lags = correlation_lags(first_trace_oversampled.size, current_trace_oversampled.size, mode="same")
+        jitter[i] = light_time_dt * (dx_oversampled / dx) * lags[np.argmax(correlation)]
+    return jitter
+
+
+def clean_data_of_outliers(data,
+                           amplitude_outliers=True,
+                           energy_outliers=True,
+                           jitter_outliers=True,
+                           sigma=3.5):
+    """This functions removes single traces from the dataset which are marked as outliers based on various metrics.
+
+    Electric & acoustic disturbances can deteriorate a single THz trace, which will affect the average of all THz traces.
+    After calculating the amplitude, energy and jitter of all single traces, the datasets are analyzed with a modified z-score, which is based on median absolute deviation (MAD).
+    An outlier is categorized as being 3.5 sigma away, but can be adapted.
+
+    This, of course, assumes a normal distribution, which is typically fulfilled in undisturbed datasets.
+    """
+    all_idx = []
+    if amplitude_outliers:
+        amplitude_peaks = np.max(data["single_traces"], axis=0)
+        idx = _get_index_of_outliers(amplitude_peaks, sigma=sigma)
+        if len(idx) > 0:
+            config.logger.warn(f"Amplitude outliers: Detected {len(idx)} single traces.")
+            all_idx.append(idx)
+    if energy_outliers:
+        energy = np.trapz(np.abs(data["single_traces"].T) ** 2)
+        idx = _get_index_of_outliers(energy, sigma=sigma)
+        if len(idx) > 0:
+            config.logger.warn(f"Energy outliers: Detected {len(idx)} single traces.")
+            all_idx.append(idx)
+    if jitter_outliers:
+        jitter = _get_jitter(data)
+        idx = _get_index_of_outliers(jitter, sigma=sigma)
+        if len(idx) > 0:
+            config.logger.warn(f"Jitter outliers: Detected {len(idx)} single traces.")
+            all_idx.append(idx)
+    all_idx = np.hstack(all_idx)
+    # Check if more than one category is activated:
+    if (amplitude_outliers and energy_outliers) or (amplitude_outliers and jitter_outliers) or (
+            energy_outliers and jitter_outliers):
+        cleaned_idx = np.unique(all_idx)
+        if len(cleaned_idx) < len(all_idx):
+            config.logger.info(f"Some indices were marked by multiple metrics, reducing these double entries.")
+            all_idx = cleaned_idx
+    config.logger.warn(
+        f"In total: {len(all_idx)} single traces are marked as outliers and are removed from the dataset.")
+    data["single_traces"] = np.delete(data["single_traces"], all_idx, axis=1)
+    # Update all other values in the data dictionary
+    data["number_of_traces"] = data["single_traces"].shape[1]
+    data["average"]["time_domain"] = np.mean(data["single_traces"], axis=1)
+    frequency, signal_fft = _calc_fft(data["light_time"], data["average"]["time_domain"])
+    data["frequency"] = frequency
+    data["average"]["frequency_domain"] = signal_fft
     return data
 
 

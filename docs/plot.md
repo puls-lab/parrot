@@ -80,7 +80,8 @@ in [cm] by dividing the input by 2.54.
 For example:
 
 ```python
-fig, ax = simple_multi_cycle(data, figsize=(30 / 2.54, 18 / 2.54))
+simple_multi_cycle(data, figsize=(30 / 2.54, 18 / 2.54))
+plt.savefig("Plot.png", dpi=600)  # Saves the plot in the current working directory
 ```
 
 #### `water_absorption_lines`
