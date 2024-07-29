@@ -21,13 +21,16 @@ def _calc_fft(time, signal):
     return frequency, signal_fft
 
 
-def _cumulated_mean_fft(data):
-    dt = (data["light_time"][-1] - data["light_time"][0]) / (len(data["light_time"]) - 1)
-    frequency = np.fft.rfftfreq(len(data["light_time"]), dt)
-    # Cumulative mean of all single traces
-    matrix = np.cumsum(data["single_traces"], axis=1) / np.arange(1, data["number_of_traces"] + 1)
+def _cumulated_mean_fft(data, x_samples):
+    # Cumulative mean of all single traces, elegant but also computationally heavy
+    # matrix = np.cumsum(data["single_traces"], axis=1) / np.arange(1, data["number_of_traces"] + 1)
+    # ---
+    # Instead, only do the mean of the supplied indices in x_samples
+    matrix = np.zeros((data["single_traces"].shape[0], len(x_samples)))
+    for i, trace_range in enumerate(x_samples):
+        matrix[:, i] = np.mean(data["single_traces"][:, :trace_range], axis=1)
     matrix = np.fft.rfft(matrix, axis=0).T
-    return frequency, matrix
+    return matrix
 
 
 def _plot_time_domain(data, ax, fill_between=False):
@@ -82,18 +85,16 @@ def _plot_log_freq_domain(data, ax, min_THz_frequency, max_THz_frequency, stack_
                            "which will result in artifacts when using FFT."
                            "Please use `data = parrot.post_process_data.window(data)` before plotting.")
     if stack_of_averages:
-        frequency_dark, matrix_dark_fft = _cumulated_mean_fft(data["dark"])
-        dark_fft = matrix_dark_fft[-1, :]
-        frequency_light, matrix_light_fft = _cumulated_mean_fft(data["light"])
-        light_fft = matrix_light_fft[-1, :]
+        frequency_dark = data["dark"]["frequency"]
+        dark_fft = data["dark"]["average"]["frequency_domain"]
+        frequency_light = data["light"]["frequency"]
+        light_fft = data["light"]["average"]["frequency_domain"]
     else:
         frequency_dark, dark_fft = _calc_fft(data["dark"]["light_time"], data["dark"]["average"]["time_domain"])
         frequency_light, light_fft = _calc_fft(data["light"]["light_time"], data["light"]["average"]["time_domain"])
     filter_frequency_dark = (frequency_dark >= data["statistics"]["bandwidth_start"]) & (
             frequency_dark <= data["statistics"]["bandwidth_stop"])
     dark_norm = np.mean(np.abs(dark_fft[filter_frequency_dark]) ** 2)
-    filter_frequency = (frequency_light >= min_THz_frequency) & (frequency_light <= max_THz_frequency)
-    frequency, signal_fft = frequency_light[filter_frequency], light_fft[filter_frequency]
 
     # Starting to plot
     ax.axvline(data["statistics"]["bandwidth_start"], linestyle="--", color="black", alpha=0.5)
@@ -113,30 +114,37 @@ def _plot_log_freq_domain(data, ax, min_THz_frequency, max_THz_frequency, stack_
         # To not clutter the plot with too many curves, just plot an accumulated average of multiples of curves,
         # means:
         # If the dataframe contains 573 single THz traces,
-        # then plot the average (and FFT) of 1, 10, 100 and all 573 traces.
-        trace_range = np.logspace(0,
-                                  np.floor(np.log10(data["light"]['number_of_traces'])),
-                                  num=1 + int(np.floor(np.log10(data["light"]["number_of_traces"])))
-                                  ).astype(int)
-
-        # Make the curves which contain less averaged spectra more transparent
-        alpha_values = np.arange(0.8 - 0.15 * len(trace_range), 1, 0.15)[::-1]
+        # then plot all traces, 10% of all traces, 1 % of all traces, and so on.
+        trace_range = [data["light"]['number_of_traces']]
+        while trace_range[-1] > 9:
+            trace_range.append(int(np.round(trace_range[-1] / 10)))
+        # Delete first number (full amount of traces), since it is already plotted
+        trace_range = trace_range[1:]
+        trace_range = trace_range[::-1]
+        # Thanks to Malte, instead of a variation of alpha-values,
+        # the plasma colormap is used to differentiate the curves from each other
+        # It is restricted to a maximum of 0.75, to not reach to very bright/light yellow colors,
+        # which are difficult to see on white background.
+        colors = plt.cm.plasma(np.linspace(0, 0.5, len(trace_range)))
+        colors = colors[::-1]
         for j, i in enumerate(trace_range[::-1]):
             # Select a temporary subset of the dataframe, first dark
             filter_frequency = (frequency_dark >= data["statistics"]["bandwidth_start"]) & (
                     frequency_dark <= data["statistics"]["bandwidth_stop"])
-            frequency, signal_fft = frequency_dark[filter_frequency], matrix_dark_fft[i - 1, :][filter_frequency]
+            frequency, signal_fft = _calc_fft(data["dark"]["light_time"],
+                                              np.mean(data["dark"]["single_traces"][:, :i - 1], axis=1))
             dark_norm = np.mean(np.abs(signal_fft) ** 2)
             # Then light
             filter_frequency = (frequency_light >= min_THz_frequency) & (frequency_light <= max_THz_frequency)
-            frequency, signal_fft = frequency_light[filter_frequency], matrix_light_fft[i - 1, :][filter_frequency]
+            frequency, signal_fft = _calc_fft(data["light"]["light_time"],
+                                              np.mean(data["light"]["single_traces"][:, :i - 1], axis=1))
             if i == 1:
                 label_str = f"{i} THz trace"
             else:
                 label_str = f"{i} averaged THz traces"
-            ax.plot(frequency, 10 * np.log10(np.abs(signal_fft) ** 2 / dark_norm),
-                    color="tab:orange",
-                    alpha=alpha_values[j],
+            ax.plot(frequency[filter_frequency], 10 * np.log10(np.abs(signal_fft[filter_frequency]) ** 2 / dark_norm),
+                    color=colors[j],
+                    alpha=0.8,
                     label=label_str)
     if "dark" in data.keys():
         dark_norm = np.mean(np.abs(dark_fft[filter_frequency]) ** 2)
@@ -210,11 +218,6 @@ def extended_multi_cycle(data,
                                             min_THz_frequency=min_THz_frequency,
                                             max_THz_frequency=max_THz_frequency,
                                             threshold_dB=threshold_dB)
-    frequency_dark, matrix_dark_fft = _cumulated_mean_fft(data["dark"])
-    frequency_light, matrix_light_fft = _cumulated_mean_fft(data["light"])
-    filter_frequency = (frequency_dark >= data["statistics"]["bandwidth_start"]) & (
-            frequency_dark <= data["statistics"]["bandwidth_stop"])
-    dark_norm = np.mean(np.abs(matrix_dark_fft[-1, :][filter_frequency]) ** 2)
 
     ax = axs[1]
     ax = _plot_log_freq_domain(data, ax, min_THz_frequency, max_THz_frequency, stack_of_averages=True)
@@ -224,17 +227,35 @@ def extended_multi_cycle(data,
     # Third plot, effect of averaging
     ax = axs[2]
     # TODO: Show in documentation why we expect a linear relationship for effective averaging
+    frequency_dark = data["dark"]["frequency"]
+    frequency_light = data["light"]["frequency"]
+
     filter_dark = (frequency_dark >= data["statistics"]["bandwidth_start"]) & (
             frequency_dark <= data["statistics"]["bandwidth_stop"])
     filter_light = (frequency_light >= data["statistics"]["bandwidth_start"]) & (
             frequency_light <= data["statistics"]["bandwidth_stop"])
     min_of_max_traces = np.min([data["light"]["number_of_traces"], data["dark"]["number_of_traces"]])
-    dynamic_range = np.max(np.abs(matrix_light_fft[:min_of_max_traces, filter_light]) ** 2, axis=1) \
-                    / np.mean(np.abs(matrix_dark_fft[:min_of_max_traces, filter_dark]) ** 2, axis=1)
-    ax.scatter(np.arange(1, min_of_max_traces + 1),
+    # Calculating the dynamic range for every (cumulated) trace can be very computationally heavy
+    # Instead, if the min_of_max_traces is e.g., 3720, calculate an array with 10^n
+    # The following formula would for example produce x_samples = [1,10,100], since we use later log-axis
+    x_samples = np.logspace(0, int(np.log10(min_of_max_traces)) - 1, int(np.log10(min_of_max_traces)))
+    # Repeat every item 10x and take the cumulative sum. Attach at the end the total number of traces
+    x_samples = np.concatenate((np.cumsum(np.repeat(x_samples, 10)), np.array([min_of_max_traces])))
+    # We can only use integer amounts for averaged traces, thus the forced type to int.
+    # This gives many double entries due to rounding, thus the use of np.unique().
+    x_samples = np.unique(np.logspace(0, np.log10(min_of_max_traces), 100, dtype=int))
+    matrix_light_dr = _cumulated_mean_fft(data["light"], x_samples)
+    matrix_dark_dr = _cumulated_mean_fft(data["dark"], x_samples)
+    dynamic_range = np.max(np.abs(matrix_light_dr[:, filter_light]) ** 2, axis=1) \
+                    / np.mean(np.abs(matrix_dark_dr[:, filter_dark]) ** 2, axis=1)
+    range_for_color = np.logspace(np.log10(len(dynamic_range)), np.log10(1), len(dynamic_range))
+    range_for_color -= 1
+    range_for_color = 0.75 * range_for_color / np.max(range_for_color) + 0.25
+
+    ax.scatter(x_samples,
                dynamic_range,
-               color="tab:blue",
-               label=f"Max. {int(np.round(10 * np.log10(np.max(dynamic_range))))} dB")
+               color=plt.cm.plasma_r(range_for_color))
+    ax.scatter([], [], color="tab:orange", label=f"Max. {int(np.round(10 * np.log10(np.max(dynamic_range))))} dB")
     ax.set_xscale('log')
     ax.set_yscale('log')
     ax.set_xlabel(r"$N$, cumulative averaged traces")
