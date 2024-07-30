@@ -72,6 +72,7 @@ def position_cut(data, dataset_name, figsize=None):
         ax.set_title(f"Cutting {dataset_name} dataset into single traces")
     ax.set_xlabel("Time samples")
     ax.set_ylabel("Position")
+    ax.set_xlim([0, data["trace_cut_index"][10] + 1])
     ax.yaxis.set_major_formatter(EngFormatter("V"))
     ax.grid(True)
     plt.tight_layout()

@@ -281,7 +281,10 @@ def simple_multi_cycle(data,
     else:
         config.set_debug(False)
     if figsize is None:
-        figsize = (12, 8)
+        # This is a good size for a 16:9 (PowerPoint) presentation.
+        # figsize only accepts inches, so values in [cm] are converted.
+        # Tip: Set vertical_stacked_plots=False to have the plots next to each other
+        figsize = (32.5 / 2.54, 15.5 / 2.54)
     if vertical_stacked_plots:
         fig, axs = plt.subplots(nrows=3, ncols=1, figsize=figsize)
     else:
