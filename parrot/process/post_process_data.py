@@ -324,6 +324,7 @@ def clean_data_of_outliers(data,
                            amplitude_outliers=True,
                            energy_outliers=True,
                            jitter_outliers=True,
+                           return_outlier_traces=False,
                            sigma=3.5):
     """This functions removes single traces from the dataset which are marked as outliers based on various metrics.
 
@@ -333,21 +334,22 @@ def clean_data_of_outliers(data,
 
     This, of course, assumes a normal distribution, which is typically fulfilled in undisturbed datasets.
     """
+
     all_idx = []
     if amplitude_outliers:
-        amplitude_peaks = np.max(data["single_traces"], axis=0)
+        amplitude_peaks = np.max(data["light"]["single_traces"], axis=0)
         idx = _get_index_of_outliers(amplitude_peaks, sigma=sigma)
         if len(idx) > 0:
             config.logger.warn(f"Amplitude outliers: Detected {len(idx)} single traces.")
             all_idx.append(idx)
     if energy_outliers:
-        energy = np.trapz(np.abs(data["single_traces"].T) ** 2)
+        energy = np.trapz(np.abs(data["light"]["single_traces"].T) ** 2)
         idx = _get_index_of_outliers(energy, sigma=sigma)
         if len(idx) > 0:
             config.logger.warn(f"Energy outliers: Detected {len(idx)} single traces.")
             all_idx.append(idx)
     if jitter_outliers:
-        jitter = _get_jitter(data)
+        jitter = _get_jitter(data["light"])
         idx = _get_index_of_outliers(jitter, sigma=sigma)
         if len(idx) > 0:
             config.logger.warn(f"Jitter outliers: Detected {len(idx)} single traces.")
@@ -361,15 +363,20 @@ def clean_data_of_outliers(data,
             config.logger.info(f"Some indices were marked by multiple metrics, reducing these double entries.")
             all_idx = cleaned_idx
     config.logger.warn(
-        f"In total: {len(all_idx)} single traces are marked as outliers and are removed from the dataset.")
-    data["single_traces"] = np.delete(data["single_traces"], all_idx, axis=1)
+        f"In total: {len(all_idx)} single traces are marked as outliers and are removed from the light-dataset.")
+    if return_outlier_traces:
+        outlier_traces = data["light"]["single_traces"][:, all_idx]
+    data["light"]["single_traces"] = np.delete(data["light"]["single_traces"], all_idx, axis=1)
     # Update all other values in the data dictionary
-    data["number_of_traces"] = data["single_traces"].shape[1]
-    data["average"]["time_domain"] = np.mean(data["single_traces"], axis=1)
-    frequency, signal_fft = _calc_fft(data["light_time"], data["average"]["time_domain"])
-    data["frequency"] = frequency
-    data["average"]["frequency_domain"] = signal_fft
-    return data
+    data["light"]["number_of_traces"] = data["light"]["single_traces"].shape[1]
+    data["light"]["average"]["time_domain"] = np.mean(data["light"]["single_traces"], axis=1)
+    frequency, signal_fft = _calc_fft(data["light"]["light_time"], data["light"]["average"]["time_domain"])
+    data["light"]["frequency"] = frequency
+    data["light"]["average"]["frequency_domain"] = signal_fft
+    if return_outlier_traces:
+        return data, outlier_traces
+    else:
+        return data
 
 
 def get_statistics(data, min_THz_frequency=0e12, max_THz_frequency=10e12, threshold_dB=10):
