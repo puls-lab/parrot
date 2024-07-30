@@ -89,6 +89,7 @@ def run(data,
         else:
             # Otherwise, first maximum, then minimum
             data["trace_cut_index"] = np.array([np.argmax(data["position"]), np.argmin(data["position"])])
+            data["number_of_traces"] = 1
     else:
         # Get the peaks of the sinusoid (or similar) of the position data, then we know the number of traces
         trace_cut_index, number_of_traces = get_multiple_index(data["dt"], data["position"], filter_position,

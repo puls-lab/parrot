@@ -59,15 +59,12 @@ def position_cut(data, dataset_name, figsize=None):
     if figsize is None:
         figsize = (8, 4)
     fig, ax = plt.subplots(figsize=figsize)
-    ax.plot(data["position"], label="Position")
-    # axvline is unfortunately quite slow --> currently commented out
-    # [ax.axvline(x, color="black", alpha=0.8) for x in data["trace_cut_index"]]
-    # ax.axvline(np.nan, color="black", alpha=0.8, label="Cut index")
+
+    position_selection = data["position"][0 : data["trace_cut_index"][10] + 1]
+    ax.plot(position_selection, label="Position")
+    [ax.axvline(x, color="black", alpha=0.8) for x in data["trace_cut_index"][:11]]
+    ax.axvline(np.nan, color="black", alpha=0.8, label="Cut index")
     ax.legend(loc="upper right")
-    if data["number_of_traces"] > 10:
-        # If more than 10 single traces are detected, restrict x-axis to only show first ten,
-        # or you get a wall of vertical lines indicating the extrema of the positional data
-        ax.set_xlim([0, data["trace_cut_index"][10]])
     if dataset_name is None:
         ax.set_title(f"Cutting dataset into single traces")
     else:
@@ -234,7 +231,7 @@ def with_delay_compensation(data, interpolated_delay, consider_all_traces, datas
     return fig, ax
 
 
-def analysis_amplitude_jitter(data, figsize=None):
+def analysis(data, figsize=None):
     if figsize is None:
         figsize = (8, 12)
     fig, axs = plt.subplot_mosaic([['A', 'A', 'A2'],
