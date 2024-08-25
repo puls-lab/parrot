@@ -6,7 +6,8 @@ As a highlight of this module, possible phase delays between position signal and
 The data is first given back to the "proces_data.py" module before being returned to the user.
 """
 import numpy as np
-from scipy.signal import sosfiltfilt, butter, find_peaks
+import scipy.signal
+from scipy.signal import sosfiltfilt, butter, find_peaks, decimate
 from scipy.optimize import minimize, direct
 import scipy.interpolate as interp
 # Only for debugging, otherwise PyCharm crashes
@@ -33,6 +34,7 @@ def run(data,
         highcut_signal=None,
         consider_all_traces=False,
         global_delay_search=True,
+        search_radius=None,
         local_search_startpoint=50,
         dataset_name=None,
         debug=False):
@@ -133,7 +135,7 @@ def run(data,
                 f"No delay_value provided, searching now for optimal delay... (please wait)")
             if global_delay_search:
                 data["delay_value"] = get_global_delay(data, original_time, signal_interpolated,
-                                                       consider_all_traces, debug)
+                                                       consider_all_traces, search_radius, debug)
             else:
                 data["delay_value"] = get_local_delay(data, original_time, signal_interpolated,
                                                       consider_all_traces, local_search_startpoint, debug)
@@ -160,12 +162,18 @@ def resample_data(data, max_thz_frequency):
         config.logger.debug(f"No resampling necessary.")
         return data
     current_time = np.arange(0, len(data["position"]) * data["dt"], data["dt"])
+    current_sampling_rate = 1 / data["dt"]
+
     new_dt = factor * data["dt"]
     new_time = np.arange(0, len(data["position"]) * data["dt"], new_dt)
+    new_sampling_rate = 1 / new_dt
+    position_filtered = butter_filter(data["position"], current_sampling_rate, highcut=new_sampling_rate)
+    signal_filtered = butter_filter(data["signal"], current_sampling_rate, highcut=new_sampling_rate)
+
     config.logger.info(
-        f"Current time sample: {EngFormatter('s')(data['dt'])} per sample. New time sample: {EngFormatter('s')(new_dt)} per sample.")
-    data["position"] = np.interp(new_time, current_time, data["position"])
-    data["signal"] = np.interp(new_time, current_time, data["signal"])
+        f"Current time sample: {EngFormatter('s')(data['dt'])} per sample. New time sample: {EngFormatter('s')(new_dt)} per sample. Factor: {factor}x")
+    data["position"] = np.interp(new_time, current_time, position_filtered)
+    data["signal"] = np.interp(new_time, current_time, signal_filtered)
     data["time"] = new_time
     data["dt"] = new_dt
     return data
@@ -222,7 +230,7 @@ def _housekeeping_optimizer(delay, error):
     iteration_errors.append(error)
 
 
-def get_global_delay(data, original_time, signal_interpolated, consider_all_traces, debug=False):
+def get_global_delay(data, original_time, signal_interpolated, consider_all_traces, search_radius=None, debug=False):
     """Tried various global optimization alogirithms from the SciPy package.
     The DIRECT algorithm was typically fast (< 10s) and reliable in finding the global minimum.
 
@@ -237,6 +245,8 @@ def get_global_delay(data, original_time, signal_interpolated, consider_all_trac
     # since it start position can be arbitrary
     half_position_cycle = np.median(np.diff(data["trace_cut_index"])) / 2  # In time samples
     bounds = [(-half_position_cycle, +half_position_cycle)]
+    if search_radius is not None:
+        bounds = [(-search_radius, +search_radius)]
 
     iteration_steps = []
     iteration_delays = []

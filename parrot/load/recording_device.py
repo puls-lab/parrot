@@ -48,38 +48,6 @@ class LockInAmplifier(Load):
             signal = X
         return time, delay, signal
 
-    def _minimize_y_lockin(self, signal_x, signal_y):
-        x0 = [0]
-        init_simplex = np.array([0, np.deg2rad(10)]).reshape(2, 1)
-        xatol = 0.01
-        if self.debug:
-            fig, self.ax = plt.subplots(nrows=1, ncols=2, sharex=True)
-            self.ax[0].set_title("Phase between X and Y")
-            self.ax[0].set_xlabel("Iteration")
-            self.ax[0].set_ylabel("Phase [°]")
-            self.ax[1].set_title("Y Peak-Peak")
-            self.ax[1].set_xlabel("Iteration")
-            self.ax[1].set_ylabel("Y_peak-peak [V]")
-            self.ax[0].grid()
-            self.ax[1].grid()
-            fig.suptitle(f"Optimizing phase, minimizing Y component")
-            self.iteration = 0
-        res = minimize(self._find_optimal_phase, x0, args=(signal_x, signal_y), method="Nelder-Mead",
-                       options={"disp": False,
-                                "maxiter": 30,
-                                "xatol": xatol,
-                                "initial_simplex": init_simplex})
-        return res.x[0]
-
-    def _find_optimal_phase(self, ang, x, y):
-        Y = x * np.sin(-ang) + y * np.cos(-ang)
-        if self.debug:
-            self.ax[0].scatter(self.iteration, np.rad2deg(ang[0]), color="tab:blue")
-            self.ax[1].scatter(self.iteration, np.nanmax(Y) - np.nanmin(Y), color="tab:blue")
-            self.iteration = self.iteration + 1
-            print(f"Phase: {np.rad2deg(ang[0]):.1f}\tY_p-p = {np.nanmax(Y) - np.nanmin(Y):E}")
-        return np.nanmax(Y) - np.nanmin(Y)
-
     def _read_lockin_attributes(self, f):
         self.history_traces = list(f.keys())
         self.dev_name = list(f[self.history_traces[0]].keys())[0]

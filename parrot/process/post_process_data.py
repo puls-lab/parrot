@@ -244,6 +244,9 @@ def _get_index_of_outliers(values, sigma=3.5):
     """
     deviation = np.abs(values - np.median(values))
     mad = np.median(deviation)
+    if mad == 0:
+        config.logger.info(f"Median absolute deviation (MAD) is zero, skipping this step of outlier detection.")
+        return np.array([])
     mod_z_score = 0.6745 * deviation / mad
     idx = np.where(mod_z_score > sigma)[0]
     return idx
