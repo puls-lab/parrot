@@ -32,6 +32,7 @@ def run(data,
         filter_signal=True,
         lowcut_signal=1,
         highcut_signal=None,
+        resample=True,
         consider_all_traces=False,
         global_delay_search=True,
         search_radius=None,
@@ -82,7 +83,7 @@ def run(data,
             config.logger.info(
                 f'Signal data is low- and high-pass filtered with [{EngFormatter("Hz")(lowcut_signal)}, '
                 f'{EngFormatter("Hz")(highcut_signal)}].')
-    if filter_signal:
+    if filter_signal and resample:
         data = resample_data(data, max_thz_frequency)
     if recording_type == "single_cycle":
         if np.argmin(data["position"]) - np.argmax(data["position"]) < 0:
@@ -172,6 +173,12 @@ def resample_data(data, max_thz_frequency):
 
     config.logger.info(
         f"Current time sample: {EngFormatter('s')(data['dt'])} per sample. New time sample: {EngFormatter('s')(new_dt)} per sample. Factor: {factor}x")
+    # Large arrays can sometimes have round-off errors in length by +-1 (e.g. after butter_filter).
+    # To rectify this, cut all arrays to their common, minimum length
+    min_length = np.min(np.array([len(current_time), len(position_filtered), len(signal_filtered)]))
+    current_time = current_time[:min_length]
+    position_filtered = position_filtered[:min_length]
+    signal_filtered = signal_filtered[:min_length]
     data["position"] = np.interp(new_time, current_time, position_filtered)
     data["signal"] = np.interp(new_time, current_time, signal_filtered)
     data["time"] = new_time
