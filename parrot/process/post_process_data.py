@@ -357,7 +357,10 @@ def clean_data_of_outliers(data,
         if len(idx) > 0:
             config.logger.warn(f"Jitter outliers: Detected {len(idx)} single traces.")
             all_idx.append(idx)
-    all_idx = np.hstack(all_idx)
+    if len(all_idx) > 0:
+        all_idx = np.hstack(all_idx)
+    else:
+        all_idx = []
     # Check if more than one category is activated:
     if (amplitude_outliers and energy_outliers) or (amplitude_outliers and jitter_outliers) or (
             energy_outliers and jitter_outliers):
@@ -365,17 +368,22 @@ def clean_data_of_outliers(data,
         if len(cleaned_idx) < len(all_idx):
             config.logger.info(f"Some indices were marked by multiple metrics, reducing these double entries.")
             all_idx = cleaned_idx
-    config.logger.warn(
-        f"In total: {len(all_idx)} single traces are marked as outliers and are removed from the light-dataset.")
-    if return_outlier_traces:
-        outlier_traces = data["light"]["single_traces"][:, all_idx]
-    data["light"]["single_traces"] = np.delete(data["light"]["single_traces"], all_idx, axis=1)
-    # Update all other values in the data dictionary
-    data["light"]["number_of_traces"] = data["light"]["single_traces"].shape[1]
-    data["light"]["average"]["time_domain"] = np.mean(data["light"]["single_traces"], axis=1)
-    frequency, signal_fft = _calc_fft(data["light"]["light_time"], data["light"]["average"]["time_domain"])
-    data["light"]["frequency"] = frequency
-    data["light"]["average"]["frequency_domain"] = signal_fft
+    if len(all_idx) > 0:
+        config.logger.warn(
+            f"In total: {len(all_idx)} single traces are marked as outliers and are removed from the light-dataset.")
+        if return_outlier_traces:
+            outlier_traces = data["light"]["single_traces"][:, all_idx]
+        data["light"]["single_traces"] = np.delete(data["light"]["single_traces"], all_idx, axis=1)
+        # Update all other values in the data dictionary
+        data["light"]["number_of_traces"] = data["light"]["single_traces"].shape[1]
+        data["light"]["average"]["time_domain"] = np.mean(data["light"]["single_traces"], axis=1)
+        frequency, signal_fft = _calc_fft(data["light"]["light_time"], data["light"]["average"]["time_domain"])
+        data["light"]["frequency"] = frequency
+        data["light"]["average"]["frequency_domain"] = signal_fft
+    else:
+        outlier_traces = np.array([])
+        config.logger.info(
+            f"No outliers detected.")
     if return_outlier_traces:
         return data, outlier_traces
     else:
