@@ -138,12 +138,12 @@ def with_delay_compensation(data, interpolated_delay, consider_all_traces, datas
     ax[0].set_title('Delay = 0 Sa')
     ax[0].legend(loc="upper left")
     signal_matrix = np.zeros((data["interpolation_resolution"], data["number_of_traces"]))
-    signal_matrix[:] = np.NaN
+    signal_matrix[:] = np.nan
 
     new_position = data["position"]
     new_position = (new_position - np.nanmin(new_position)) / (np.nanmax(new_position) - np.nanmin(new_position))
     signal_matrix = np.zeros((data["interpolation_resolution"], data["number_of_traces"]))
-    signal_matrix[:] = np.NaN
+    signal_matrix[:] = np.nan
     i = 0
     for position, signal in zip(np.split(new_position, data["trace_cut_index"]), split_sig):
         # Numpy's interpolation method needs sorted, strictly increasing values
@@ -187,7 +187,7 @@ def with_delay_compensation(data, interpolated_delay, consider_all_traces, datas
     new_position = data["position"]
     new_position = (new_position - np.nanmin(new_position)) / (np.nanmax(new_position) - np.nanmin(new_position))
     signal_matrix = np.zeros((data["interpolation_resolution"], data["number_of_traces"]))
-    signal_matrix[:] = np.NaN
+    signal_matrix[:] = np.nan
     i = 0
     for position, signal in zip(np.split(new_position, data["trace_cut_index"]), split_sig):
         # Numpy's interpolation method needs sorted, strictly increasing values

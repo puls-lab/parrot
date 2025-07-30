@@ -378,7 +378,7 @@ def _minimize(delay, data, original_time_short, original_position_short, trace_c
                              np.split(new_signal, trace_cut_idx))
 
     signal_matrix = np.zeros((data["interpolation_resolution"], len(trace_cut_idx) + 1))
-    signal_matrix[:] = np.NaN
+    signal_matrix[:] = np.nan
 
     i = 0
     for position, signal in traces_for_testing:
